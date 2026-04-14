@@ -3,12 +3,6 @@ targetScope = 'subscription'
 @description('Base name prefix for all resources')
 param environmentName string
 
-@description('Location for the East region')
-param eastLocation string = 'eastus'
-
-@description('Location for the West region')
-param westLocation string = 'westus'
-
 @description('Kubernetes version')
 param kubernetesVersion string = '1.30'
 
@@ -18,120 +12,89 @@ param gitRepositoryUrl string
 @description('Git branch for Flux')
 param gitRepositoryBranch string = 'main'
 
-@description('Kustomization path for the East cluster')
-param kustomizationPathEast string = './clusters/east'
-
-@description('Kustomization path for the West cluster')
-param kustomizationPathWest string = './clusters/west'
-
 @description('Private DNS zone for internal services')
 param privateDnsZoneName string = 'internal.contoso.com'
 
+@description('Location for global shared resources (DNS zone resource group)')
+param globalResourcesLocation string = 'eastus'
+
+@description('Array of cluster configurations. Each element: { name, location, addressPrefix, aksSubnetPrefix, ilbSubnetPrefix, kustomizationPath }')
+param clusters array
+
 // ---------------------------------------------------------------------------
-// Resource Groups
+// Resource Groups — one per cluster + one global
 // ---------------------------------------------------------------------------
 
-resource rgEast 'Microsoft.Resources/resourceGroups@2024-03-01' = {
-  name: 'rg-${environmentName}-east'
-  location: eastLocation
-}
-
-resource rgWest 'Microsoft.Resources/resourceGroups@2024-03-01' = {
-  name: 'rg-${environmentName}-west'
-  location: westLocation
-}
+resource rgs 'Microsoft.Resources/resourceGroups@2024-03-01' = [
+  for cluster in clusters: {
+    name: 'rg-${environmentName}-${cluster.name}'
+    location: cluster.location
+  }
+]
 
 resource rgGlobal 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-${environmentName}-global'
-  location: eastLocation
+  location: globalResourcesLocation
 }
 
 // ---------------------------------------------------------------------------
-// Virtual Networks
+// Virtual Networks — one per cluster
 // ---------------------------------------------------------------------------
 
-module vnetEast 'modules/vnet.bicep' = {
-  name: 'vnet-east'
-  scope: rgEast
-  params: {
-    name: 'vnet-${environmentName}-east'
-    location: eastLocation
-    addressPrefix: '10.1.0.0/16'
-    aksSubnetPrefix: '10.1.0.0/20'
-    ilbSubnetPrefix: '10.1.16.0/24'
+module vnets 'modules/vnet.bicep' = [
+  for (cluster, i) in clusters: {
+    name: 'vnet-${cluster.name}'
+    scope: rgs[i]
+    params: {
+      name: 'vnet-${environmentName}-${cluster.name}'
+      location: cluster.location
+      addressPrefix: cluster.addressPrefix
+      aksSubnetPrefix: cluster.aksSubnetPrefix
+      ilbSubnetPrefix: cluster.ilbSubnetPrefix
+    }
   }
-}
-
-module vnetWest 'modules/vnet.bicep' = {
-  name: 'vnet-west'
-  scope: rgWest
-  params: {
-    name: 'vnet-${environmentName}-west'
-    location: westLocation
-    addressPrefix: '10.2.0.0/16'
-    aksSubnetPrefix: '10.2.0.0/20'
-    ilbSubnetPrefix: '10.2.16.0/24'
-  }
-}
+]
 
 // ---------------------------------------------------------------------------
-// VNet Peering (bidirectional)
+// VNet Peering — full mesh (every VNet peers with every other)
 // ---------------------------------------------------------------------------
 
-module peeringEastToWest 'modules/vnetPeering.bicep' = {
-  name: 'peering-east-to-west'
-  scope: rgEast
-  params: {
-    localVnetName: vnetEast.outputs.name
-    remoteVnetId: vnetWest.outputs.id
-    peeringName: 'east-to-west'
-  }
-}
+var clusterCount = length(clusters)
 
-module peeringWestToEast 'modules/vnetPeering.bicep' = {
-  name: 'peering-west-to-east'
-  scope: rgWest
-  params: {
-    localVnetName: vnetWest.outputs.name
-    remoteVnetId: vnetEast.outputs.id
-    peeringName: 'west-to-east'
+module peerings 'modules/vnetPeering.bicep' = [
+  for k in range(0, clusterCount * clusterCount): if ((k / clusterCount) != (k % clusterCount)) {
+    name: 'peering-${clusters[k / clusterCount].name}-to-${clusters[k % clusterCount].name}'
+    scope: rgs[k / clusterCount]
+    params: {
+      localVnetName: vnets[k / clusterCount].outputs.name
+      remoteVnetId: vnets[k % clusterCount].outputs.id
+      peeringName: '${clusters[k / clusterCount].name}-to-${clusters[k % clusterCount].name}'
+    }
   }
-}
+]
 
 // ---------------------------------------------------------------------------
-// AKS Clusters (private, Azure CNI, Flux GitOps)
+// AKS Clusters (private, Azure CNI, Flux GitOps) — one per cluster
 // ---------------------------------------------------------------------------
 
-module aksEast 'modules/aks.bicep' = {
-  name: 'aks-east'
-  scope: rgEast
-  params: {
-    name: 'aks-${environmentName}-east'
-    location: eastLocation
-    kubernetesVersion: kubernetesVersion
-    vnetSubnetId: vnetEast.outputs.aksSubnetId
-    gitRepositoryUrl: gitRepositoryUrl
-    gitRepositoryBranch: gitRepositoryBranch
-    kustomizationPath: kustomizationPathEast
+module aksClusters 'modules/aks.bicep' = [
+  for (cluster, i) in clusters: {
+    name: 'aks-${cluster.name}'
+    scope: rgs[i]
+    params: {
+      name: 'aks-${environmentName}-${cluster.name}'
+      location: cluster.location
+      kubernetesVersion: kubernetesVersion
+      vnetSubnetId: vnets[i].outputs.aksSubnetId
+      gitRepositoryUrl: gitRepositoryUrl
+      gitRepositoryBranch: gitRepositoryBranch
+      kustomizationPath: cluster.kustomizationPath
+    }
   }
-}
-
-module aksWest 'modules/aks.bicep' = {
-  name: 'aks-west'
-  scope: rgWest
-  params: {
-    name: 'aks-${environmentName}-west'
-    location: westLocation
-    kubernetesVersion: kubernetesVersion
-    vnetSubnetId: vnetWest.outputs.aksSubnetId
-    gitRepositoryUrl: gitRepositoryUrl
-    gitRepositoryBranch: gitRepositoryBranch
-    kustomizationPath: kustomizationPathWest
-  }
-}
+]
 
 // ---------------------------------------------------------------------------
-// Private DNS Zone + VNet Links
+// Private DNS Zone + VNet Links (all VNets linked)
 // ---------------------------------------------------------------------------
 
 module privateDns 'modules/privateDnsZone.bicep' = {
@@ -140,13 +103,9 @@ module privateDns 'modules/privateDnsZone.bicep' = {
   params: {
     zoneName: privateDnsZoneName
     vnetLinks: [
-      {
-        name: 'link-east'
-        vnetId: vnetEast.outputs.id
-      }
-      {
-        name: 'link-west'
-        vnetId: vnetWest.outputs.id
+      for (cluster, i) in clusters: {
+        name: 'link-${cluster.name}'
+        vnetId: vnets[i].outputs.id
       }
     ]
   }
