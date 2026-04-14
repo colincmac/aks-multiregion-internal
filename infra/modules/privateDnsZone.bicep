@@ -4,12 +4,12 @@ param zoneName string
 @description('VNet links: array of {name, vnetId}')
 param vnetLinks array
 
-resource dnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+resource dnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
   name: zoneName
   location: 'global'
 }
 
-resource links 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = [
+resource links 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = [
   for link in vnetLinks: {
     parent: dnsZone
     name: link.name

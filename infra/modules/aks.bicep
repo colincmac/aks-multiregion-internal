@@ -41,16 +41,16 @@ param privateDnsZoneId string
 var vnetName = split(vnetSubnetId, '/')[8]
 var subnetName = split(vnetSubnetId, '/')[10]
 
-resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' existing = {
+resource vnet 'Microsoft.Network/virtualNetworks@2025-05-01' existing = {
   name: vnetName
 }
 
-resource subnet 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' existing = {
+resource subnet 'Microsoft.Network/virtualNetworks/subnets@2025-05-01' existing = {
   parent: vnet
   name: subnetName
 }
 
-resource aks 'Microsoft.ContainerService/managedClusters@2024-02-01' = {
+resource aks 'Microsoft.ContainerService/managedClusters@2026-01-01' = {
   name: name
   location: location
   identity: {
@@ -79,7 +79,8 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-02-01' = {
     }
     networkProfile: {
       networkPlugin: 'azure'
-      networkPolicy: 'azure'
+      networkDataplane: 'cilium'
+      networkPolicy: 'cilium'
       serviceCidr: '172.16.0.0/16'
       dnsServiceIP: '172.16.0.10'
       loadBalancerSku: 'standard'
@@ -96,7 +97,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-02-01' = {
         availabilityZones: ['1', '2', '3']
       }
       {
-        name: 'user'
+        name: 'workload1'
         count: userNodeMinCount
         minCount: userNodeMinCount
         maxCount: userNodeMaxCount
@@ -125,6 +126,8 @@ resource networkContributorAssignment 'Microsoft.Authorization/roleAssignments@2
   }
 }
 
+
+
 // ---------------------------------------------------------------------------
 // ExternalDNS Workload Identity
 // ---------------------------------------------------------------------------
@@ -137,14 +140,14 @@ var dnsZoneResourceGroup = !empty(privateDnsZoneId) ? dnsZoneIdParts[4] : ''
 var dnsZoneName = !empty(privateDnsZoneId) ? last(dnsZoneIdParts) : ''
 
 // User-Assigned Managed Identity for ExternalDNS
-resource externalDnsIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource externalDnsIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2025-05-31-preview' = {
   name: 'mi-external-dns-${name}'
   location: location
 }
 
 // Federated identity credential: allows the ExternalDNS Kubernetes ServiceAccount
 // in the external-dns namespace to exchange a Kubernetes token for an Azure token.
-resource externalDnsFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
+resource externalDnsFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2025-05-31-preview' = {
   parent: externalDnsIdentity
   name: 'external-dns-federated'
   properties: {
@@ -154,14 +157,14 @@ resource externalDnsFederatedCredential 'Microsoft.ManagedIdentity/userAssignedI
   }
 }
 // Reference the existing Private DNS Zone for role assignment scoping.
-resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = {
+resource privateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
   name: dnsZoneName
   scope: resourceGroup(dnsZoneSubscriptionId, dnsZoneResourceGroup)
 }
 // Grant ExternalDNS identity Private DNS Zone Contributor on the DNS Zone.
 // Only deployed when a DNS Zone resource ID is provided.
 // Scope to the specific Private DNS Zone so the identity cannot modify other zones.
-module resourceRoleAssignment 'br/public:avm/ptn/authorization/resource-role-assignment:0.1.2' = {
+module dnsZoneRoleAssignment 'br/public:avm/ptn/authorization/resource-role-assignment:0.1.2' = {
   params: {
     // Required parameters
     principalId: externalDnsIdentity.properties.principalId
@@ -172,7 +175,7 @@ module resourceRoleAssignment 'br/public:avm/ptn/authorization/resource-role-ass
 }
 
 // Flux extension
-resource fluxExtension 'Microsoft.KubernetesConfiguration/extensions@2023-05-01' = {
+resource fluxExtension 'Microsoft.KubernetesConfiguration/extensions@2025-03-01' = {
   name: 'flux'
   scope: aks
   properties: {
@@ -182,7 +185,7 @@ resource fluxExtension 'Microsoft.KubernetesConfiguration/extensions@2023-05-01'
 }
 
 // Flux GitOps configuration — GitHub source with Kustomize
-resource fluxConfig 'Microsoft.KubernetesConfiguration/fluxConfigurations@2023-05-01' = {
+resource fluxConfig 'Microsoft.KubernetesConfiguration/fluxConfigurations@2025-04-01' = {
   name: 'cluster-config'
   scope: aks
   dependsOn: [fluxExtension]

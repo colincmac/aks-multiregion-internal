@@ -13,7 +13,7 @@ param aksSubnetPrefix string
 @description('Internal load balancer subnet prefix')
 param ilbSubnetPrefix string
 
-resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
+resource vnet 'Microsoft.Network/virtualNetworks@2025-05-01' = {
   name: name
   location: location
   properties: {

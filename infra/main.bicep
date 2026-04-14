@@ -4,7 +4,7 @@ targetScope = 'subscription'
 param environmentName string
 
 @description('Kubernetes version')
-param kubernetesVersion string = '1.30'
+param kubernetesVersion string = '1.35'
 
 @description('Git repository URL for Flux (HTTPS)')
 param gitRepositoryUrl string
@@ -25,14 +25,14 @@ param clusters array
 // Resource Groups — one per cluster + one global
 // ---------------------------------------------------------------------------
 
-resource rgs 'Microsoft.Resources/resourceGroups@2024-03-01' = [
+resource rgs 'Microsoft.Resources/resourceGroups@2025-04-01' = [
   for cluster in clusters: {
     name: 'rg-${environmentName}-${cluster.name}'
     location: cluster.location
   }
 ]
 
-resource rgGlobal 'Microsoft.Resources/resourceGroups@2024-03-01' = {
+resource rgGlobal 'Microsoft.Resources/resourceGroups@2025-04-01' = {
   name: 'rg-${environmentName}-global'
   location: globalResourcesLocation
 }
@@ -45,6 +45,10 @@ module vnets 'modules/vnet.bicep' = [
   for (cluster, i) in clusters: {
     name: 'vnet-${cluster.name}'
     scope: rgs[i]
+    dependsOn: [
+      rgs
+      rgGlobal
+    ]
     params: {
       name: 'vnet-${environmentName}-${cluster.name}'
       location: cluster.location
@@ -57,22 +61,23 @@ module vnets 'modules/vnet.bicep' = [
 
 // ---------------------------------------------------------------------------
 // VNet Peering — full mesh (every VNet peers with every other)
+// Each cluster gets a module that creates outbound peerings to all others.
 // ---------------------------------------------------------------------------
 
-var clusterCount = length(clusters)
-
-module peerings 'modules/vnetPeering.bicep' = [
-  for k in range(0, clusterCount * clusterCount): if ((k / clusterCount) != (k % clusterCount)) {
-    name: 'peering-${clusters[k / clusterCount].name}-to-${clusters[k % clusterCount].name}'
-    scope: rgs[k / clusterCount]
+var vnetDefinitions = [for (cluster, i) in clusters: {
+  id: resourceId(subscription().subscriptionId, rgs[i].name, 'Microsoft.Network/virtualNetworks', 'vnet-${environmentName}-${cluster.name}')
+  name: 'vnet-${environmentName}-${cluster.name}'
+}]
+module clusterPeerings 'modules/vnetPeeringSet.bicep' = [
+  for (cluster, i) in clusters: {
+    name: 'peerings-from-${cluster.name}'
+    scope: rgs[i]
     params: {
-      localVnetName: vnets[k / clusterCount].outputs.name
-      remoteVnetId: vnets[k % clusterCount].outputs.id
-      peeringName: '${clusters[k / clusterCount].name}-to-${clusters[k % clusterCount].name}'
+      localVnetName: vnetDefinitions[i].name
+      allVnets: vnetDefinitions
     }
   }
 ]
-
 // ---------------------------------------------------------------------------
 // Private DNS Zone + VNet Links (all VNets linked)
 // ---------------------------------------------------------------------------
@@ -80,12 +85,15 @@ module peerings 'modules/vnetPeering.bicep' = [
 module privateDns 'modules/privateDnsZone.bicep' = {
   name: 'private-dns'
   scope: rgGlobal
+  dependsOn: [
+    vnets
+  ]
   params: {
     zoneName: privateDnsZoneName
     vnetLinks: [
       for (cluster, i) in clusters: {
         name: 'link-${cluster.name}'
-        vnetId: vnets[i].outputs.id
+        vnetId: vnetDefinitions[i].id
       }
     ]
   }
@@ -100,6 +108,9 @@ module aksClusters 'modules/aks.bicep' = [
   for (cluster, i) in clusters: {
     name: 'aks-${cluster.name}'
     scope: rgs[i]
+    dependsOn: [
+      vnets
+    ]
     params: {
       name: 'aks-${environmentName}-${cluster.name}'
       location: cluster.location
