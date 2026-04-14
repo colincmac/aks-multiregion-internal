@@ -34,6 +34,9 @@ param userNodeMinCount int = 2
 @description('Max user nodes for autoscaler')
 param userNodeMaxCount int = 10
 
+@description('Resource ID of the Azure Private DNS Zone managed by ExternalDNS')
+param privateDnsZoneId string = ''
+
 // Extract VNet and subnet names from the subnet resource ID for role assignment
 var vnetName = split(vnetSubnetId, '/')[8]
 var subnetName = split(vnetSubnetId, '/')[10]
@@ -63,6 +66,16 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-02-01' = {
     }
     apiServerAccessProfile: {
       enablePrivateCluster: true
+    }
+    // Enable OIDC issuer and Workload Identity so ExternalDNS can authenticate
+    // to Azure APIs without long-lived credentials.
+    oidcIssuerProfile: {
+      enabled: true
+    }
+    securityProfile: {
+      workloadIdentity: {
+        enabled: true
+      }
     }
     networkProfile: {
       networkPlugin: 'azure'
@@ -112,6 +125,53 @@ resource networkContributorAssignment 'Microsoft.Authorization/roleAssignments@2
   }
 }
 
+// ---------------------------------------------------------------------------
+// ExternalDNS Workload Identity
+// ---------------------------------------------------------------------------
+
+// User-Assigned Managed Identity for ExternalDNS
+resource externalDnsIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: 'mi-external-dns-${name}'
+  location: location
+}
+
+// Federated identity credential: allows the ExternalDNS Kubernetes ServiceAccount
+// in the external-dns namespace to exchange a Kubernetes token for an Azure token.
+resource externalDnsFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
+  parent: externalDnsIdentity
+  name: 'external-dns-federated'
+  properties: {
+    issuer: aks.properties.oidcIssuerProfile.issuerURL
+    subject: 'system:serviceaccount:external-dns:external-dns'
+    audiences: ['api://AzureADTokenExchange']
+  }
+}
+
+// Grant ExternalDNS identity Private DNS Zone Contributor on the DNS Zone.
+// Only deployed when a DNS Zone resource ID is provided.
+resource externalDnsDnsContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(privateDnsZoneId)) {
+  // Scope to the specific Private DNS Zone so the identity cannot modify other zones.
+  scope: privateDnsZone
+  name: guid(privateDnsZoneId, externalDnsIdentity.id, 'b12aa53e-6015-4669-85d0-8515ebb3ae7f')
+  properties: {
+    principalId: externalDnsIdentity.properties.principalId
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'b12aa53e-6015-4669-85d0-8515ebb3ae7f' // Private DNS Zone Contributor
+    )
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Reference the existing Private DNS Zone for role assignment scoping.
+resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (!empty(privateDnsZoneId)) {
+  name: last(split(privateDnsZoneId, '/'))
+  scope: resourceGroup(
+    split(privateDnsZoneId, '/')[2],  // subscriptionId
+    split(privateDnsZoneId, '/')[4]   // resourceGroupName
+  )
+}
+
 // Flux extension
 resource fluxExtension 'Microsoft.KubernetesConfiguration/extensions@2023-05-01' = {
   name: 'flux'
@@ -151,3 +211,6 @@ resource fluxConfig 'Microsoft.KubernetesConfiguration/fluxConfigurations@2023-0
 output id string = aks.id
 output name string = aks.name
 output principalId string = aks.identity.principalId
+output oidcIssuerUrl string = aks.properties.oidcIssuerProfile.issuerURL
+output externalDnsIdentityClientId string = externalDnsIdentity.properties.clientId
+output externalDnsIdentityPrincipalId string = externalDnsIdentity.properties.principalId

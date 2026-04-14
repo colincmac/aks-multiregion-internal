@@ -3,6 +3,8 @@ kind: Kustomization
 resources:
   - ../base/istio-system
   - ../base/my-app
+  - ../base/health-check
+  - ../base/external-dns
   - helmrelease-istiod.yaml
   - helmrelease-ztunnel.yaml
   - east-west-gateway.yaml
@@ -11,3 +13,8 @@ patches:
     target:
       kind: Namespace
       name: istio-system
+  - path: externaldns-patch.yaml
+    target:
+      kind: Deployment
+      name: external-dns
+      namespace: external-dns
