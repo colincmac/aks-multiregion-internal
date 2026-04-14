@@ -59,15 +59,41 @@ module vnets 'modules/vnet.bicep' = [
   }
 ]
 
+module hubVnet 'modules/vnet.bicep' = {
+  name: 'vnet-${environmentName}-global'
+  scope: rgGlobal
+  params: {
+    name: 'vnet-${environmentName}-global'
+    location: globalResourcesLocation
+    addressPrefix: '10.10.0.0/16'
+    aksSubnetPrefix: '10.10.1.0/20'
+    ilbSubnetPrefix: '10.10.2.0/24'
+  }
+}
 // ---------------------------------------------------------------------------
 // VNet Peering — full mesh (every VNet peers with every other)
 // Each cluster gets a module that creates outbound peerings to all others.
 // ---------------------------------------------------------------------------
 
-var vnetDefinitions = [for (cluster, i) in clusters: {
-  id: resourceId(subscription().subscriptionId, rgs[i].name, 'Microsoft.Network/virtualNetworks', 'vnet-${environmentName}-${cluster.name}')
-  name: 'vnet-${environmentName}-${cluster.name}'
-}]
+var vnetDefinitions = [
+  for (cluster, i) in clusters: {
+    id: resourceId(
+      subscription().subscriptionId,
+      rgs[i].name,
+      'Microsoft.Network/virtualNetworks',
+      'vnet-${environmentName}-${cluster.name}'
+    )
+    name: 'vnet-${environmentName}-${cluster.name}'
+  }
+]
+
+var allVnetDefinitions = union(vnetDefinitions, [
+  {
+    id: hubVnet.outputs.id
+    name: hubVnet.outputs.name
+  }
+])
+
 module clusterPeerings 'modules/vnetPeeringSet.bicep' = [
   for (cluster, i) in clusters: {
     name: 'peerings-from-${cluster.name}'
@@ -78,6 +104,16 @@ module clusterPeerings 'modules/vnetPeeringSet.bicep' = [
     }
   }
 ]
+
+module hubPeerings 'modules/vnetPeeringSet.bicep' = {
+  name: 'peerings-from-global'
+  scope: rgGlobal
+  params: {
+    localVnetName: hubVnet.outputs.name
+    allVnets: allVnetDefinitions
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Private DNS Zone + VNet Links (all VNets linked)
 // ---------------------------------------------------------------------------
@@ -98,7 +134,6 @@ module privateDns 'modules/privateDnsZone.bicep' = {
     ]
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // AKS Clusters (private, Azure CNI, Flux GitOps) — one per cluster
@@ -123,4 +158,3 @@ module aksClusters 'modules/aks.bicep' = [
     }
   }
 ]
-

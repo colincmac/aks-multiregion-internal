@@ -64,6 +64,11 @@ resource aks 'Microsoft.ContainerService/managedClusters@2026-01-01' = {
       managed: true
       enableAzureRBAC: true
     }
+    azureMonitorProfile: {
+      metrics: {
+        enabled: true
+      }
+    }
     apiServerAccessProfile: {
       enablePrivateCluster: true
     }
@@ -77,13 +82,37 @@ resource aks 'Microsoft.ContainerService/managedClusters@2026-01-01' = {
         enabled: true
       }
     }
+    addonProfiles: {
+      azureKeyvaultSecretsProvider: {
+        enabled: true
+        config: {
+          enableSecretRotation: 'false'
+          rotationPollInterval: '2m'
+        }
+      }
+      azurepolicy: {
+        enabled: true
+      }
+    }
     networkProfile: {
       networkPlugin: 'azure'
       networkDataplane: 'cilium'
+      networkPluginMode: 'overlay'
       networkPolicy: 'cilium'
       serviceCidr: '172.16.0.0/16'
       dnsServiceIP: '172.16.0.10'
+      podCidr: '10.244.0.0/16'
       loadBalancerSku: 'standard'
+      advancedNetworking: {
+        enabled: true
+        observability: {
+          enabled: true
+        }
+        security: {
+          advancedNetworkPolicies: 'FQDN'
+          enabled: true
+        }
+      }
     }
     agentPoolProfiles: [
       {
@@ -126,8 +155,6 @@ resource networkContributorAssignment 'Microsoft.Authorization/roleAssignments@2
   }
 }
 
-
-
 // ---------------------------------------------------------------------------
 // ExternalDNS Workload Identity
 // ---------------------------------------------------------------------------
@@ -135,7 +162,6 @@ resource networkContributorAssignment 'Microsoft.Authorization/roleAssignments@2
 // Parse the DNS zone resource ID components into named variables for clarity.
 // Resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/privateDnsZones/{name}
 var dnsZoneIdParts = split(privateDnsZoneId, '/')
-var dnsZoneSubscriptionId = !empty(privateDnsZoneId) ? dnsZoneIdParts[2] : ''
 var dnsZoneResourceGroup = !empty(privateDnsZoneId) ? dnsZoneIdParts[4] : ''
 var dnsZoneName = !empty(privateDnsZoneId) ? last(dnsZoneIdParts) : ''
 
@@ -156,21 +182,12 @@ resource externalDnsFederatedCredential 'Microsoft.ManagedIdentity/userAssignedI
     audiences: ['api://AzureADTokenExchange']
   }
 }
-// Reference the existing Private DNS Zone for role assignment scoping.
-resource privateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
-  name: dnsZoneName
-  scope: resourceGroup(dnsZoneSubscriptionId, dnsZoneResourceGroup)
-}
-// Grant ExternalDNS identity Private DNS Zone Contributor on the DNS Zone.
-// Only deployed when a DNS Zone resource ID is provided.
-// Scope to the specific Private DNS Zone so the identity cannot modify other zones.
-module dnsZoneRoleAssignment 'br/public:avm/ptn/authorization/resource-role-assignment:0.1.2' = {
+
+module externalDnsDnsContributor 'dnsZoneContributorRole.bicep' = {
   params: {
-    // Required parameters
     principalId: externalDnsIdentity.properties.principalId
-    resourceId: privateDnsZone.id
-    roleDefinitionId: 'b12aa53e-6015-4669-85d0-8515ebb3ae7f'
-    principalType: 'ServicePrincipal'
+    privateDnsZoneName: dnsZoneName
+    privateDnsZoneResourceGroup: dnsZoneResourceGroup
   }
 }
 
