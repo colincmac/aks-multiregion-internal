@@ -1,4 +1,218 @@
-# Private Multi-Region Global Load Balancing with Istio on AKS
+# Private Multi-Region Global Load Balancing with Istio Ambient Mode on AKS
+
+A fully private, multi-region service mesh architecture using **Istio Ambient Mode** on Azure Kubernetes Service (AKS), managed via **Flux GitOps**. Deploy any number of private AKS clusters across Azure regions — the infrastructure automatically creates full-mesh VNet peering, Flux GitOps, and Private DNS linking between all clusters. Istio ambient mode provides mTLS, L4/L7 policy enforcement via waypoint proxies, and locality-aware load balancing with cross-region failover.
+
+## Architecture
+
+```
+                        Azure Private DNS Zone
+                     (internal.contoso.com — A records
+                      for each region's ILB private IP)
+                        │          │         │
+           ┌────────────┘          │         └────────────┐
+           ▼                       ▼                      ▼
+ ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+ │  Region East     │   │  Region West     │   │  Region N        │
+ │  ┌────────────┐  │   │  ┌────────────┐  │   │  ┌────────────┐  │
+ │  │ Azure ILB  │  │   │  │ Azure ILB  │  │   │  │ Azure ILB  │  │
+ │  └─────┬──────┘  │   │  └─────┬──────┘  │   │  └─────┬──────┘  │
+ │        ▼         │   │        ▼         │   │        ▼         │
+ │  ┌────────────┐  │   │  ┌────────────┐  │   │  ┌────────────┐  │
+ │  │K8s Gateway │  │   │  │K8s Gateway │  │   │  │K8s Gateway │  │
+ │  │(istio GWC) │  │   │  │(istio GWC) │  │   │  │(istio GWC) │  │
+ │  └─────┬──────┘  │   │  └─────┬──────┘  │   │  └─────┬──────┘  │
+ │        ▼         │   │        ▼         │   │        ▼         │
+ │  ┌────────────┐  │   │  ┌────────────┐  │   │  ┌────────────┐  │
+ │  │AKS Cluster │◄─┼──►│  │AKS Cluster │◄─┼──►│  │AKS Cluster │  │
+ │  │ ztunnel +  │  │   │  │ ztunnel +  │  │   │  │ ztunnel +  │  │
+ │  │  waypoint  │  │   │  │  waypoint  │  │   │  │  waypoint  │  │
+ │  │ (ambient)  │  │   │  │ (ambient)  │  │   │  │ (ambient)  │  │
+ │  └────────────┘  │   │  └────────────┘  │   │  └────────────┘  │
+ │  VNet: 10.1.0/16 │   │  VNet: 10.2.0/16 │   │  VNet: 10.N.0/16 │
+ └──────────────────┘   └──────────────────┘   └──────────────────┘
+          │                       │                      │
+          └─── HBONE/mTLS (15008) E-W Gateways ──────────┘
+          │                                              │
+          └───── Full-Mesh VNet Peering ─────────────────┘
+```
+
+**How traffic flows:**
+
+1. Internal clients resolve `api.internal.contoso.com` via Azure Private DNS, which returns ILB IPs for all regions (round-robin).
+2. Requests hit the region-local Kubernetes Gateway API `Gateway` resource (Istio gateway class), backed by an internal Azure load balancer.
+3. Istio ambient mode routes to local pods by default using **locality-aware load balancing** with `failoverPriority: [topology.istio.io/cluster]`.
+4. L7 policy (outlier detection, locality failover) is enforced by the **waypoint proxy** (`gatewayClassName: istio-waypoint`) in each namespace.
+5. If local endpoints fail health checks (1 consecutive 5xx error triggers outlier detection), the waypoint proxy automatically fails over to healthy instances in another cluster via **east-west gateways** over HBONE/mTLS on port 15008.
+
+## Failover Scenarios
+
+### Regional Failure
+If an entire cluster/region goes down, all its endpoints become unavailable. Istio's locality failover (`failoverPriority: [topology.istio.io/cluster]`) routes all traffic to the surviving cluster(s) automatically — no manual intervention required.
+
+### Single Workload Failure
+If a specific workload (e.g. `my-api`) fails health checks in one cluster but the rest of the cluster is healthy, outlier detection (`consecutive5xxErrors: 1`, `interval: 1s`) ejects only the unhealthy service endpoints. Traffic for that service fails over to healthy instances in another cluster while all other services in the same cluster continue operating normally.
+
+## Repository Structure
+
+```
+├── infra/                          # Azure infrastructure (Bicep)
+│   ├── main.bicep                  # Subscription-scoped orchestration
+│   ├── main.bicepparam             # Deployment parameters
+│   └── modules/
+│       ├── aks.bicep               # Private AKS cluster + Flux GitOps
+│       ├── vnet.bicep              # VNet with AKS and ILB subnets
+│       ├── vnetPeering.bicep       # Bidirectional VNet peering
+│       └── privateDnsZone.bicep    # Private DNS zone + VNet links
+├── clusters/                       # Flux Kustomize source (synced to clusters)
+│   ├── base/                       # Shared manifests applied to all clusters
+│   │   ├── gateway-api/            # Gateway API CRD bundle (Kustomization)
+│   │   ├── gateway-api-crds.yaml   # Flux Kustomization for Gateway API CRDs
+│   │   ├── istio-helm-repo.yaml    # Flux HelmRepository for Istio charts
+│   │   ├── istio-system/           # Shared: namespace, PeerAuthentication,
+│   │   │                           #   HelmRelease for istio/base and istio/cni
+│   │   └── my-app/                 # DestinationRule, K8s Gateway, HTTPRoute,
+│   │                               #   AuthorizationPolicy, waypoint, Service
+│   ├── east/                       # East cluster overlay
+│   │   ├── helmrelease-istiod.yaml # istiod with cluster-east settings
+│   │   ├── helmrelease-ztunnel.yaml# ztunnel for network-east
+│   │   ├── east-west-gateway.yaml  # Ambient east-west Gateway (HBONE/15008)
+│   │   ├── istio-system-patch.yaml # topology.istio.io/network label patch
+│   │   └── kustomization.yaml
+│   └── west/                       # West cluster overlay (mirror of east)
+│       ├── helmrelease-istiod.yaml
+│       ├── helmrelease-ztunnel.yaml
+│       ├── east-west-gateway.yaml
+│       ├── istio-system-patch.yaml
+│       └── kustomization.yaml
+├── scripts/
+│   └── deploy.ps1                  # Infrastructure deployment script
+└── notes.md                        # Detailed architecture design notes
+```
+
+## What Gets Deployed
+
+| Component | Details |
+|---|---|
+| **AKS Clusters** | N private clusters (any Azure regions) with Azure CNI, availability zones, system + autoscaling user node pools |
+| **Networking** | Dedicated VNet per cluster with AKS and ILB subnets, automatic full-mesh VNet peering |
+| **GitOps** | Flux v2 extension on each cluster, syncing per-region Kustomize manifests from this repo |
+| **Service Mesh** | Multi-primary Istio **Ambient Mode** — each cluster runs its own control plane (istiod) with shared root CA; ztunnel replaces sidecars |
+| **mTLS** | STRICT mode mesh-wide via ztunnel; cross-cluster mTLS via shared root CA and east-west HBONE gateways |
+| **L7 Policy** | Waypoint proxies per namespace enforce outlier detection, locality failover, and AuthorizationPolicies |
+| **Load Balancing** | Locality-aware routing with `failoverPriority: [topology.istio.io/cluster]`; outlier detection: 1 consecutive 5xx → immediate failover |
+| **Ingress** | Kubernetes Gateway API (`gateway.networking.k8s.io/v1`) with `gatewayClassName: istio`, backed by internal Azure LBs |
+| **DNS** | Azure Private DNS Zone linked to all cluster VNets |
+
+## Prerequisites
+
+- Azure CLI with Bicep
+- An Azure subscription with permissions to create resources at subscription scope
+- A GitHub repository for Flux to pull Kustomize manifests from
+
+## Deployment
+
+### 1. Configure Parameters
+
+Edit [`infra/main.bicepparam`](infra/main.bicepparam) — set your GitHub repository URL and define your clusters:
+
+```bicep
+param gitRepositoryUrl = 'https://github.com/colincmac/aks-multiregion-internal'
+
+param clusters = [
+  {
+    name: 'eastus2'
+    location: 'eastus2'
+    addressPrefix: '10.1.0.0/16'
+    aksSubnetPrefix: '10.1.0.0/20'
+    ilbSubnetPrefix: '10.1.16.0/24'
+    kustomizationPath: './clusters/east'
+  }
+  {
+    name: 'centralus'
+    location: 'centralus'
+    addressPrefix: '10.2.0.0/16'
+    aksSubnetPrefix: '10.2.0.0/20'
+    ilbSubnetPrefix: '10.2.16.0/24'
+    kustomizationPath: './clusters/west'
+  }
+  // Add more clusters as needed — use non-overlapping address prefixes
+]
+```
+
+### 2. Deploy Infrastructure
+
+```powershell
+./scripts/deploy.ps1 -SubscriptionId "<your-subscription-id>"
+```
+
+This creates resource groups, full-mesh VNet peering, private AKS clusters with Flux, and the shared Private DNS zone.
+
+### 3. Post-Deployment — Istio Multi-Cluster Setup
+
+After infrastructure is deployed, complete the cross-cluster mesh by sharing a root CA and exchanging remote secrets:
+
+```bash
+# 1. Create a shared root CA secret in ALL clusters (before Flux installs Istio)
+for CTX in aks-eastus2 aks-centralus; do
+  kubectl create secret generic cacerts -n istio-system \
+    --from-file=ca-cert.pem \
+    --from-file=ca-key.pem \
+    --from-file=root-cert.pem \
+    --from-file=cert-chain.pem \
+    --context="$CTX"
+done
+
+# 2. Exchange remote secrets — each cluster needs a secret for every other cluster
+CLUSTERS=(aks-eastus2 aks-centralus)
+for SRC in "${CLUSTERS[@]}"; do
+  for DST in "${CLUSTERS[@]}"; do
+    if [ "$SRC" != "$DST" ]; then
+      istioctl create-remote-secret \
+        --context="$SRC" \
+        --name="$SRC" | \
+        kubectl apply -f - --context="$DST"
+    fi
+  done
+done
+```
+
+> **Note:** Since these are private AKS clusters, ensure the API server private FQDNs are resolvable across peered VNets via Private DNS Zone forwarding before exchanging remote secrets.
+
+> **Note:** The `cacerts` secret must be created **before** Flux installs Istio (before the `istiod` HelmRelease reconciles) to ensure istiod uses the shared root CA from the start.
+
+### 4. Verify
+
+```bash
+# Check Flux HelmRelease status on each cluster
+for CTX in aks-eastus2 aks-centralus; do
+  echo "--- $CTX ---"
+  kubectl get helmrelease -n istio-system --context="$CTX"
+  kubectl get helmrelease -n flux-system --context="$CTX"
+done
+
+# Check ambient mode is active
+kubectl get pods -n istio-system --context=aks-eastus2
+# Should see: istiod, istio-cni-node, ztunnel (no sidecar injectors)
+
+# Verify waypoint proxy is running in my-app namespace
+kubectl get gateway -n my-app --context=aks-eastus2
+
+# Verify Istio sees endpoints across clusters
+istioctl proxy-config endpoints <ztunnel-pod> -n istio-system --context=aks-eastus2 | grep my-api
+```
+
+## Key Design Decisions
+
+- **Ambient Mode (no sidecars)** — ztunnel handles L4 mTLS transparently for all pods without sidecar injection. Waypoint proxies provide optional L7 policy enforcement per namespace/service.
+- **Waypoint proxies for L7 failover** — Required for outlier detection and locality-based failover in ambient mode. The `waypoint` Gateway resource (`istio.io/waypoint-for: service`) is shared across clusters.
+- **HBONE east-west gateways** — Cross-cluster traffic uses HBONE (HTTP-Based Overlay Network Encapsulation) on port 15008 instead of the legacy TLS-passthrough on port 15443. Each cluster has its own east-west Gateway with `gatewayClassName: istio-east-west`.
+- **Kubernetes Gateway API** — North-south ingress uses `gateway.networking.k8s.io/v1` `Gateway` + `HTTPRoute` instead of the legacy Istio `Gateway`/`VirtualService` API.
+- **Flux HelmRelease for Istio** — No `helm install` or `istioctl install` commands. The four ambient Helm charts (base → istiod → cni → ztunnel) are installed in dependency order by Flux.
+- **N-cluster scalability** — Define clusters in a single parameter array. VNet peering, DNS linking, and Flux configuration scale automatically.
+- **Multi-primary mesh** — Each cluster operates independently; no single point of failure for the control plane.
+- **Fully private** — No public IPs. All load balancers use `service.beta.kubernetes.io/azure-load-balancer-internal: "true"`, clusters use private API server endpoints, and DNS is via Azure Private DNS Zones.
+- **Shared root CA** — All clusters trust the same root certificate authority, enabling cross-cluster mTLS without terminating encryption at the gateway.
+
 
 A fully private, multi-region service mesh architecture using open-source Istio on Azure Kubernetes Service (AKS). Deploy any number of private AKS clusters across Azure regions — the infrastructure automatically creates full-mesh VNet peering, Flux GitOps, and Private DNS linking between all clusters. Istio locality-aware load balancing handles cross-region failover with no public endpoints.
 

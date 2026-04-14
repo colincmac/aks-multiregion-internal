@@ -3,4 +3,11 @@ kind: Kustomization
 resources:
   - ../base/istio-system
   - ../base/my-app
-  - istio-operator.yaml
+  - helmrelease-istiod.yaml
+  - helmrelease-ztunnel.yaml
+  - east-west-gateway.yaml
+patches:
+  - path: istio-system-patch.yaml
+    target:
+      kind: Namespace
+      name: istio-system
