@@ -61,7 +61,7 @@ The **health-check controller + ExternalDNS** integration solves this:
 1. The health-check controller continuously probes `my-api.my-app.svc.cluster.local:8080` directly (not through the gateway, to avoid masking the failure via cross-region failover)
 2. After 3 consecutive failures (~15s), it deletes the `api-dns-record` Service from the `health-check` namespace
 3. ExternalDNS detects the annotation is gone (via `--policy=sync`) and removes the A record for `api.internal.contoso.com` from Azure Private DNS
-4. With TTL=30s, DNS clients stop being directed to the failing region within ~45s total
+4. With TTL=30s, DNS clients stop being directed to the failing region within ~55s total
 5. When `my-api` recovers, the controller recreates the Service and ExternalDNS re-adds the A record
 
 ## DNS-Based GSLB Architecture
@@ -99,7 +99,7 @@ The **health-check controller + ExternalDNS** integration solves this:
 
 **Key design properties:**
 - **Per-cluster ownership**: Each ExternalDNS uses a unique `--txt-owner-id` (`cluster-east` / `cluster-west`) so each instance only manages its own A record contribution
-- **Fast failover**: TTL=30s + probe interval=5s + fail threshold=3 = ~45s worst-case
+- **Fast failover**: TTL=30s + probe interval=5s + fail threshold=3 + ExternalDNS poll interval=10s = ~55s worst-case
 - **Automatic recovery**: Controller recreates the DNS Service when backends recover; ExternalDNS re-adds the A record
 - **Fully private**: ExternalDNS manages Azure *Private* DNS Zone records — no public endpoints involved
 - **GitOps-compatible**: All resources are Kustomize manifests managed by Flux
@@ -292,7 +292,7 @@ for CTX in aks-eastus2 aks-centralus; do
 done
 ```
 
-> **DNS TTL consideration:** The `api-dns-record` Service annotation sets TTL=30s. Combined with the health-check probe interval (5s) and fail threshold (3 consecutive failures = 15s), the worst-case failover time is ~45s. For faster failover, reduce the TTL, but note that Azure Private DNS has a minimum TTL of 1s.
+> **DNS TTL consideration:** The `api-dns-record` Service annotation sets TTL=30s. Combined with the health-check probe interval (5s), fail threshold (3 consecutive failures = 15s), and ExternalDNS polling interval (10s), the worst-case failover time is ~55s. For faster failover, reduce the TTL and/or the ExternalDNS `--interval`, but note that Azure Private DNS has a minimum TTL of 1s.
 
 ### 4. Verify
 

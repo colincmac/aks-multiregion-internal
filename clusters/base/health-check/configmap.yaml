@@ -64,13 +64,21 @@ data:
 
     apply_dns_service() {
       echo "[controller] Applying DNS service (backends healthy)"
-      kubectl apply -f "${DNS_SERVICE_FILE}" && echo "OK" > "${STATUS_FILE}" || true
+      if ! kubectl apply -f "${DNS_SERVICE_FILE}"; then
+        echo "[controller] ERROR: Failed to apply DNS service — check RBAC permissions"
+        return 1
+      fi
+      echo "OK" > "${STATUS_FILE}"
     }
 
     delete_dns_service() {
       echo "[controller] Deleting DNS service (backends unhealthy)"
-      kubectl delete service "${DNS_SERVICE_NAME}" \
-        -n "${DNS_SERVICE_NAMESPACE}" --ignore-not-found=true && echo "UNHEALTHY" > "${STATUS_FILE}" || true
+      if ! kubectl delete service "${DNS_SERVICE_NAME}" \
+        -n "${DNS_SERVICE_NAMESPACE}" --ignore-not-found=true; then
+        echo "[controller] ERROR: Failed to delete DNS service — check RBAC permissions"
+        return 1
+      fi
+      echo "UNHEALTHY" > "${STATUS_FILE}"
     }
 
     # Ensure the DNS service is absent at startup until we confirm health
