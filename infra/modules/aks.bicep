@@ -35,7 +35,7 @@ param userNodeMinCount int = 2
 param userNodeMaxCount int = 10
 
 @description('Resource ID of the Azure Private DNS Zone managed by ExternalDNS')
-param privateDnsZoneId string = ''
+param privateDnsZoneId string
 
 // Extract VNet and subnet names from the subnet resource ID for role assignment
 var vnetName = split(vnetSubnetId, '/')[8]
@@ -131,7 +131,7 @@ resource networkContributorAssignment 'Microsoft.Authorization/roleAssignments@2
 
 // Parse the DNS zone resource ID components into named variables for clarity.
 // Resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/privateDnsZones/{name}
-var dnsZoneIdParts = !empty(privateDnsZoneId) ? split(privateDnsZoneId, '/') : []
+var dnsZoneIdParts = split(privateDnsZoneId, '/')
 var dnsZoneSubscriptionId = !empty(privateDnsZoneId) ? dnsZoneIdParts[2] : ''
 var dnsZoneResourceGroup = !empty(privateDnsZoneId) ? dnsZoneIdParts[4] : ''
 var dnsZoneName = !empty(privateDnsZoneId) ? last(dnsZoneIdParts) : ''
@@ -153,27 +153,22 @@ resource externalDnsFederatedCredential 'Microsoft.ManagedIdentity/userAssignedI
     audiences: ['api://AzureADTokenExchange']
   }
 }
-
-// Grant ExternalDNS identity Private DNS Zone Contributor on the DNS Zone.
-// Only deployed when a DNS Zone resource ID is provided.
-resource externalDnsDnsContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(privateDnsZoneId)) {
-  // Scope to the specific Private DNS Zone so the identity cannot modify other zones.
-  scope: privateDnsZone
-  name: guid(privateDnsZoneId, externalDnsIdentity.id, 'b12aa53e-6015-4669-85d0-8515ebb3ae7f')
-  properties: {
-    principalId: externalDnsIdentity.properties.principalId
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      'b12aa53e-6015-4669-85d0-8515ebb3ae7f' // Private DNS Zone Contributor
-    )
-    principalType: 'ServicePrincipal'
-  }
-}
-
 // Reference the existing Private DNS Zone for role assignment scoping.
-resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (!empty(privateDnsZoneId)) {
+resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = {
   name: dnsZoneName
   scope: resourceGroup(dnsZoneSubscriptionId, dnsZoneResourceGroup)
+}
+// Grant ExternalDNS identity Private DNS Zone Contributor on the DNS Zone.
+// Only deployed when a DNS Zone resource ID is provided.
+// Scope to the specific Private DNS Zone so the identity cannot modify other zones.
+module resourceRoleAssignment 'br/public:avm/ptn/authorization/resource-role-assignment:0.1.2' = {
+  params: {
+    // Required parameters
+    principalId: externalDnsIdentity.properties.principalId
+    resourceId: privateDnsZone.id
+    roleDefinitionId: 'b12aa53e-6015-4669-85d0-8515ebb3ae7f'
+    principalType: 'ServicePrincipal'
+  }
 }
 
 // Flux extension

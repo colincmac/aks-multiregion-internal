@@ -74,6 +74,25 @@ module peerings 'modules/vnetPeering.bicep' = [
 ]
 
 // ---------------------------------------------------------------------------
+// Private DNS Zone + VNet Links (all VNets linked)
+// ---------------------------------------------------------------------------
+
+module privateDns 'modules/privateDnsZone.bicep' = {
+  name: 'private-dns'
+  scope: rgGlobal
+  params: {
+    zoneName: privateDnsZoneName
+    vnetLinks: [
+      for (cluster, i) in clusters: {
+        name: 'link-${cluster.name}'
+        vnetId: vnets[i].outputs.id
+      }
+    ]
+  }
+}
+
+
+// ---------------------------------------------------------------------------
 // AKS Clusters (private, Azure CNI, Flux GitOps) — one per cluster
 // ---------------------------------------------------------------------------
 
@@ -94,20 +113,3 @@ module aksClusters 'modules/aks.bicep' = [
   }
 ]
 
-// ---------------------------------------------------------------------------
-// Private DNS Zone + VNet Links (all VNets linked)
-// ---------------------------------------------------------------------------
-
-module privateDns 'modules/privateDnsZone.bicep' = {
-  name: 'private-dns'
-  scope: rgGlobal
-  params: {
-    zoneName: privateDnsZoneName
-    vnetLinks: [
-      for (cluster, i) in clusters: {
-        name: 'link-${cluster.name}'
-        vnetId: vnets[i].outputs.id
-      }
-    ]
-  }
-}

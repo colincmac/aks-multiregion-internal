@@ -46,7 +46,7 @@ A fully private, multi-region service mesh architecture using **Istio Ambient Mo
 
 ## Failover Scenarios
 
-This solution handles three distinct failure scenarios, modelled after the [Tetrate edge-failover pattern](https://docs.tetrate.io/service-bridge/getting-started/use-cases/tier1-tier2/edge-failover):
+This solution handles three distinct failure scenarios:
 
 ### Scenario 1 — Partial Workload Failure (single service down, cluster healthy)
 If a specific workload (e.g. `my-api`) fails health checks in one cluster but the rest of the cluster is healthy, outlier detection (`consecutive5xxErrors: 1`, `interval: 1s`) ejects only the unhealthy service endpoints. Traffic for that service fails over to healthy instances in another cluster while all other services in the same cluster continue operating normally. No DNS change is needed.

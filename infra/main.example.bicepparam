@@ -1,7 +1,7 @@
 using './main.bicep'
 
 param environmentName = 'istio-mesh'
-param kubernetesVersion = '1.30'
+param kubernetesVersion = '1.35'
 param gitRepositoryUrl = 'https://github.com/<org>/<repo>'
 param gitRepositoryBranch = 'main'
 param privateDnsZoneName = 'internal.contoso.com'
