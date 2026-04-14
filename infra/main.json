@@ -1,0 +1,1114 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "10945136846633164713"
+    }
+  },
+  "parameters": {
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Base name prefix for all resources"
+      }
+    },
+    "eastLocation": {
+      "type": "string",
+      "defaultValue": "eastus",
+      "metadata": {
+        "description": "Location for the East region"
+      }
+    },
+    "westLocation": {
+      "type": "string",
+      "defaultValue": "westus",
+      "metadata": {
+        "description": "Location for the West region"
+      }
+    },
+    "kubernetesVersion": {
+      "type": "string",
+      "defaultValue": "1.30",
+      "metadata": {
+        "description": "Kubernetes version"
+      }
+    },
+    "gitRepositoryUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Git repository URL for Flux (HTTPS)"
+      }
+    },
+    "gitRepositoryBranch": {
+      "type": "string",
+      "defaultValue": "main",
+      "metadata": {
+        "description": "Git branch for Flux"
+      }
+    },
+    "kustomizationPathEast": {
+      "type": "string",
+      "defaultValue": "./clusters/east",
+      "metadata": {
+        "description": "Kustomization path for the East cluster"
+      }
+    },
+    "kustomizationPathWest": {
+      "type": "string",
+      "defaultValue": "./clusters/west",
+      "metadata": {
+        "description": "Kustomization path for the West cluster"
+      }
+    },
+    "privateDnsZoneName": {
+      "type": "string",
+      "defaultValue": "internal.contoso.com",
+      "metadata": {
+        "description": "Private DNS zone for internal services"
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2024-03-01",
+      "name": "[format('rg-{0}-east', parameters('environmentName'))]",
+      "location": "[parameters('eastLocation')]"
+    },
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2024-03-01",
+      "name": "[format('rg-{0}-west', parameters('environmentName'))]",
+      "location": "[parameters('westLocation')]"
+    },
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2024-03-01",
+      "name": "[format('rg-{0}-global', parameters('environmentName'))]",
+      "location": "[parameters('eastLocation')]"
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "vnet-east",
+      "resourceGroup": "[format('rg-{0}-east', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('vnet-{0}-east', parameters('environmentName'))]"
+          },
+          "location": {
+            "value": "[parameters('eastLocation')]"
+          },
+          "addressPrefix": {
+            "value": "10.1.0.0/16"
+          },
+          "aksSubnetPrefix": {
+            "value": "10.1.0.0/20"
+          },
+          "ilbSubnetPrefix": {
+            "value": "10.1.16.0/24"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "12411645200388258084"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the virtual network"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "addressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "VNet address prefix"
+              }
+            },
+            "aksSubnetPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "AKS node subnet prefix"
+              }
+            },
+            "ilbSubnetPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Internal load balancer subnet prefix"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('addressPrefix')]"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "snet-aks",
+                    "properties": {
+                      "addressPrefix": "[parameters('aksSubnetPrefix')]"
+                    }
+                  },
+                  {
+                    "name": "snet-ilb",
+                    "properties": {
+                      "addressPrefix": "[parameters('ilbSubnetPrefix')]"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "aksSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2023-11-01').subnets[0].id]"
+            },
+            "ilbSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2023-11-01').subnets[1].id]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}-east', parameters('environmentName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "vnet-west",
+      "resourceGroup": "[format('rg-{0}-west', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('vnet-{0}-west', parameters('environmentName'))]"
+          },
+          "location": {
+            "value": "[parameters('westLocation')]"
+          },
+          "addressPrefix": {
+            "value": "10.2.0.0/16"
+          },
+          "aksSubnetPrefix": {
+            "value": "10.2.0.0/20"
+          },
+          "ilbSubnetPrefix": {
+            "value": "10.2.16.0/24"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "12411645200388258084"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the virtual network"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "addressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "VNet address prefix"
+              }
+            },
+            "aksSubnetPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "AKS node subnet prefix"
+              }
+            },
+            "ilbSubnetPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Internal load balancer subnet prefix"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('addressPrefix')]"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "snet-aks",
+                    "properties": {
+                      "addressPrefix": "[parameters('aksSubnetPrefix')]"
+                    }
+                  },
+                  {
+                    "name": "snet-ilb",
+                    "properties": {
+                      "addressPrefix": "[parameters('ilbSubnetPrefix')]"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "aksSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2023-11-01').subnets[0].id]"
+            },
+            "ilbSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2023-11-01').subnets[1].id]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}-west', parameters('environmentName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "peering-east-to-west",
+      "resourceGroup": "[format('rg-{0}-east', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "localVnetName": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east'), '2025-04-01').outputs.name.value]"
+          },
+          "remoteVnetId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west'), '2025-04-01').outputs.id.value]"
+          },
+          "peeringName": {
+            "value": "east-to-west"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "6912019393249550992"
+            }
+          },
+          "parameters": {
+            "localVnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the local VNet"
+              }
+            },
+            "remoteVnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the remote VNet"
+              }
+            },
+            "peeringName": {
+              "type": "string",
+              "metadata": {
+                "description": "Peering name"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('localVnetName'), parameters('peeringName'))]",
+              "properties": {
+                "remoteVirtualNetwork": {
+                  "id": "[parameters('remoteVnetId')]"
+                },
+                "allowVirtualNetworkAccess": true,
+                "allowForwardedTraffic": true,
+                "allowGatewayTransit": false,
+                "useRemoteGateways": false
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}-east', parameters('environmentName')))]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "peering-west-to-east",
+      "resourceGroup": "[format('rg-{0}-west', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "localVnetName": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west'), '2025-04-01').outputs.name.value]"
+          },
+          "remoteVnetId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east'), '2025-04-01').outputs.id.value]"
+          },
+          "peeringName": {
+            "value": "west-to-east"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "6912019393249550992"
+            }
+          },
+          "parameters": {
+            "localVnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the local VNet"
+              }
+            },
+            "remoteVnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the remote VNet"
+              }
+            },
+            "peeringName": {
+              "type": "string",
+              "metadata": {
+                "description": "Peering name"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('localVnetName'), parameters('peeringName'))]",
+              "properties": {
+                "remoteVirtualNetwork": {
+                  "id": "[parameters('remoteVnetId')]"
+                },
+                "allowVirtualNetworkAccess": true,
+                "allowForwardedTraffic": true,
+                "allowGatewayTransit": false,
+                "useRemoteGateways": false
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}-west', parameters('environmentName')))]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "aks-east",
+      "resourceGroup": "[format('rg-{0}-east', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('aks-{0}-east', parameters('environmentName'))]"
+          },
+          "location": {
+            "value": "[parameters('eastLocation')]"
+          },
+          "kubernetesVersion": {
+            "value": "[parameters('kubernetesVersion')]"
+          },
+          "vnetSubnetId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east'), '2025-04-01').outputs.aksSubnetId.value]"
+          },
+          "gitRepositoryUrl": {
+            "value": "[parameters('gitRepositoryUrl')]"
+          },
+          "gitRepositoryBranch": {
+            "value": "[parameters('gitRepositoryBranch')]"
+          },
+          "kustomizationPath": {
+            "value": "[parameters('kustomizationPathEast')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "8760340222206326102"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "AKS cluster name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "kubernetesVersion": {
+              "type": "string",
+              "metadata": {
+                "description": "Kubernetes version"
+              }
+            },
+            "vnetSubnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Subnet resource ID for AKS nodes"
+              }
+            },
+            "gitRepositoryUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Git repository URL for Flux"
+              }
+            },
+            "gitRepositoryBranch": {
+              "type": "string",
+              "metadata": {
+                "description": "Git branch for Flux"
+              }
+            },
+            "kustomizationPath": {
+              "type": "string",
+              "metadata": {
+                "description": "Kustomization path within the Git repo"
+              }
+            },
+            "systemNodeVmSize": {
+              "type": "string",
+              "defaultValue": "Standard_D4s_v5",
+              "metadata": {
+                "description": "VM size for the system node pool"
+              }
+            },
+            "systemNodeCount": {
+              "type": "int",
+              "defaultValue": 3,
+              "metadata": {
+                "description": "System node count"
+              }
+            },
+            "userNodeVmSize": {
+              "type": "string",
+              "defaultValue": "Standard_D4s_v5",
+              "metadata": {
+                "description": "VM size for the user node pool"
+              }
+            },
+            "userNodeMinCount": {
+              "type": "int",
+              "defaultValue": 2,
+              "metadata": {
+                "description": "Min user nodes for autoscaler"
+              }
+            },
+            "userNodeMaxCount": {
+              "type": "int",
+              "defaultValue": 10,
+              "metadata": {
+                "description": "Max user nodes for autoscaler"
+              }
+            }
+          },
+          "variables": {
+            "vnetName": "[split(parameters('vnetSubnetId'), '/')[8]]",
+            "subnetName": "[split(parameters('vnetSubnetId'), '/')[10]]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ContainerService/managedClusters",
+              "apiVersion": "2024-02-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "kubernetesVersion": "[parameters('kubernetesVersion')]",
+                "dnsPrefix": "[parameters('name')]",
+                "enableRBAC": true,
+                "aadProfile": {
+                  "managed": true,
+                  "enableAzureRBAC": true
+                },
+                "apiServerAccessProfile": {
+                  "enablePrivateCluster": true
+                },
+                "networkProfile": {
+                  "networkPlugin": "azure",
+                  "networkPolicy": "azure",
+                  "serviceCidr": "172.16.0.0/16",
+                  "dnsServiceIP": "172.16.0.10",
+                  "loadBalancerSku": "standard"
+                },
+                "agentPoolProfiles": [
+                  {
+                    "name": "system",
+                    "count": "[parameters('systemNodeCount')]",
+                    "vmSize": "[parameters('systemNodeVmSize')]",
+                    "osType": "Linux",
+                    "mode": "System",
+                    "vnetSubnetID": "[parameters('vnetSubnetId')]",
+                    "enableAutoScaling": false,
+                    "availabilityZones": [
+                      "1",
+                      "2",
+                      "3"
+                    ]
+                  },
+                  {
+                    "name": "user",
+                    "count": "[parameters('userNodeMinCount')]",
+                    "minCount": "[parameters('userNodeMinCount')]",
+                    "maxCount": "[parameters('userNodeMaxCount')]",
+                    "vmSize": "[parameters('userNodeVmSize')]",
+                    "osType": "Linux",
+                    "mode": "User",
+                    "vnetSubnetID": "[parameters('vnetSubnetId')]",
+                    "enableAutoScaling": true,
+                    "availabilityZones": [
+                      "1",
+                      "2",
+                      "3"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]",
+              "name": "[guid(resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName')), resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '4d97b98b-1d4f-4787-a291-c67834d212e7')]",
+              "properties": {
+                "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2024-02-01', 'full').identity.principalId]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.KubernetesConfiguration/extensions",
+              "apiVersion": "2023-05-01",
+              "scope": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]",
+              "name": "flux",
+              "properties": {
+                "extensionType": "microsoft.flux",
+                "autoUpgradeMinorVersion": true
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.KubernetesConfiguration/fluxConfigurations",
+              "apiVersion": "2023-05-01",
+              "scope": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]",
+              "name": "cluster-config",
+              "properties": {
+                "scope": "cluster",
+                "namespace": "flux-system",
+                "sourceKind": "GitRepository",
+                "gitRepository": {
+                  "url": "[parameters('gitRepositoryUrl')]",
+                  "repositoryRef": {
+                    "branch": "[parameters('gitRepositoryBranch')]"
+                  },
+                  "syncIntervalInSeconds": 120
+                },
+                "kustomizations": {
+                  "infra": {
+                    "path": "[parameters('kustomizationPath')]",
+                    "syncIntervalInSeconds": 120,
+                    "prune": true
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]",
+                "[extensionResourceId(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), 'Microsoft.KubernetesConfiguration/extensions', 'flux')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "principalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2024-02-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}-east', parameters('environmentName')))]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "aks-west",
+      "resourceGroup": "[format('rg-{0}-west', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('aks-{0}-west', parameters('environmentName'))]"
+          },
+          "location": {
+            "value": "[parameters('westLocation')]"
+          },
+          "kubernetesVersion": {
+            "value": "[parameters('kubernetesVersion')]"
+          },
+          "vnetSubnetId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west'), '2025-04-01').outputs.aksSubnetId.value]"
+          },
+          "gitRepositoryUrl": {
+            "value": "[parameters('gitRepositoryUrl')]"
+          },
+          "gitRepositoryBranch": {
+            "value": "[parameters('gitRepositoryBranch')]"
+          },
+          "kustomizationPath": {
+            "value": "[parameters('kustomizationPathWest')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "8760340222206326102"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "AKS cluster name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "kubernetesVersion": {
+              "type": "string",
+              "metadata": {
+                "description": "Kubernetes version"
+              }
+            },
+            "vnetSubnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Subnet resource ID for AKS nodes"
+              }
+            },
+            "gitRepositoryUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Git repository URL for Flux"
+              }
+            },
+            "gitRepositoryBranch": {
+              "type": "string",
+              "metadata": {
+                "description": "Git branch for Flux"
+              }
+            },
+            "kustomizationPath": {
+              "type": "string",
+              "metadata": {
+                "description": "Kustomization path within the Git repo"
+              }
+            },
+            "systemNodeVmSize": {
+              "type": "string",
+              "defaultValue": "Standard_D4s_v5",
+              "metadata": {
+                "description": "VM size for the system node pool"
+              }
+            },
+            "systemNodeCount": {
+              "type": "int",
+              "defaultValue": 3,
+              "metadata": {
+                "description": "System node count"
+              }
+            },
+            "userNodeVmSize": {
+              "type": "string",
+              "defaultValue": "Standard_D4s_v5",
+              "metadata": {
+                "description": "VM size for the user node pool"
+              }
+            },
+            "userNodeMinCount": {
+              "type": "int",
+              "defaultValue": 2,
+              "metadata": {
+                "description": "Min user nodes for autoscaler"
+              }
+            },
+            "userNodeMaxCount": {
+              "type": "int",
+              "defaultValue": 10,
+              "metadata": {
+                "description": "Max user nodes for autoscaler"
+              }
+            }
+          },
+          "variables": {
+            "vnetName": "[split(parameters('vnetSubnetId'), '/')[8]]",
+            "subnetName": "[split(parameters('vnetSubnetId'), '/')[10]]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ContainerService/managedClusters",
+              "apiVersion": "2024-02-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "kubernetesVersion": "[parameters('kubernetesVersion')]",
+                "dnsPrefix": "[parameters('name')]",
+                "enableRBAC": true,
+                "aadProfile": {
+                  "managed": true,
+                  "enableAzureRBAC": true
+                },
+                "apiServerAccessProfile": {
+                  "enablePrivateCluster": true
+                },
+                "networkProfile": {
+                  "networkPlugin": "azure",
+                  "networkPolicy": "azure",
+                  "serviceCidr": "172.16.0.0/16",
+                  "dnsServiceIP": "172.16.0.10",
+                  "loadBalancerSku": "standard"
+                },
+                "agentPoolProfiles": [
+                  {
+                    "name": "system",
+                    "count": "[parameters('systemNodeCount')]",
+                    "vmSize": "[parameters('systemNodeVmSize')]",
+                    "osType": "Linux",
+                    "mode": "System",
+                    "vnetSubnetID": "[parameters('vnetSubnetId')]",
+                    "enableAutoScaling": false,
+                    "availabilityZones": [
+                      "1",
+                      "2",
+                      "3"
+                    ]
+                  },
+                  {
+                    "name": "user",
+                    "count": "[parameters('userNodeMinCount')]",
+                    "minCount": "[parameters('userNodeMinCount')]",
+                    "maxCount": "[parameters('userNodeMaxCount')]",
+                    "vmSize": "[parameters('userNodeVmSize')]",
+                    "osType": "Linux",
+                    "mode": "User",
+                    "vnetSubnetID": "[parameters('vnetSubnetId')]",
+                    "enableAutoScaling": true,
+                    "availabilityZones": [
+                      "1",
+                      "2",
+                      "3"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]",
+              "name": "[guid(resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName')), resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '4d97b98b-1d4f-4787-a291-c67834d212e7')]",
+              "properties": {
+                "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2024-02-01', 'full').identity.principalId]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.KubernetesConfiguration/extensions",
+              "apiVersion": "2023-05-01",
+              "scope": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]",
+              "name": "flux",
+              "properties": {
+                "extensionType": "microsoft.flux",
+                "autoUpgradeMinorVersion": true
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.KubernetesConfiguration/fluxConfigurations",
+              "apiVersion": "2023-05-01",
+              "scope": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]",
+              "name": "cluster-config",
+              "properties": {
+                "scope": "cluster",
+                "namespace": "flux-system",
+                "sourceKind": "GitRepository",
+                "gitRepository": {
+                  "url": "[parameters('gitRepositoryUrl')]",
+                  "repositoryRef": {
+                    "branch": "[parameters('gitRepositoryBranch')]"
+                  },
+                  "syncIntervalInSeconds": 120
+                },
+                "kustomizations": {
+                  "infra": {
+                    "path": "[parameters('kustomizationPath')]",
+                    "syncIntervalInSeconds": 120,
+                    "prune": true
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]",
+                "[extensionResourceId(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), 'Microsoft.KubernetesConfiguration/extensions', 'flux')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "principalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('name')), '2024-02-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}-west', parameters('environmentName')))]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "private-dns",
+      "resourceGroup": "[format('rg-{0}-global', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "zoneName": {
+            "value": "[parameters('privateDnsZoneName')]"
+          },
+          "vnetLinks": {
+            "value": [
+              {
+                "name": "link-east",
+                "vnetId": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east'), '2025-04-01').outputs.id.value]"
+              },
+              {
+                "name": "link-west",
+                "vnetId": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west'), '2025-04-01').outputs.id.value]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "2501279471076594290"
+            }
+          },
+          "parameters": {
+            "zoneName": {
+              "type": "string",
+              "metadata": {
+                "description": "Private DNS zone name"
+              }
+            },
+            "vnetLinks": {
+              "type": "array",
+              "metadata": {
+                "description": "VNet links: array of {name, vnetId}"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2020-06-01",
+              "name": "[parameters('zoneName')]",
+              "location": "global"
+            },
+            {
+              "copy": {
+                "name": "links",
+                "count": "[length(parameters('vnetLinks'))]"
+              },
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2020-06-01",
+              "name": "[format('{0}/{1}', parameters('zoneName'), parameters('vnetLinks')[copyIndex()].name)]",
+              "location": "global",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetLinks')[copyIndex()].vnetId]"
+                },
+                "registrationEnabled": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('zoneName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}-global', parameters('environmentName')))]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-east', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-east')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}-west', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'vnet-west')]"
+      ]
+    }
+  ]
+}

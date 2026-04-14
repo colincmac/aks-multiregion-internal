@@ -1,0 +1,22 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: my-api-vs
+  namespace: my-app
+spec:
+  hosts:
+    - "api.internal.contoso.com"
+  gateways:
+    - internal-api-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: my-api.my-app.svc.cluster.local
+            port:
+              number: 8080
+      retries:
+        attempts: 3
+        retryOn: 5xx,reset,connect-failure

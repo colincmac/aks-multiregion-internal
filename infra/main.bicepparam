@@ -1,0 +1,11 @@
+using './main.bicep'
+
+param environmentName = 'istio-mesh'
+param eastLocation = 'eastus'
+param westLocation = 'westus'
+param kubernetesVersion = '1.30'
+param gitRepositoryUrl = 'https://github.com/<org>/<repo>'
+param gitRepositoryBranch = 'main'
+param kustomizationPathEast = './clusters/east'
+param kustomizationPathWest = './clusters/west'
+param privateDnsZoneName = 'internal.contoso.com'

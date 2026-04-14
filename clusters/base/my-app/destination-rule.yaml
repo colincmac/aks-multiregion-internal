@@ -1,0 +1,25 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: my-api-dr
+  namespace: my-app
+spec:
+  host: my-api.my-app.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      http:
+        h2UpgradePolicy: DEFAULT
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 100
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+          - from: eastus
+            to: westus
+          - from: westus
+            to: eastus
+      simple: ROUND_ROBIN
