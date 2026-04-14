@@ -424,13 +424,81 @@ az network private-dns record-set a add-record \
 | Unified Observability | Kiali + Prometheus federation + Grafana |
 | Global Auth Policy | Shared root CA + `PeerAuthentication` + `AuthorizationPolicy` per cluster |
 | Management UI | Kiali per cluster (no single pane — this is the biggest gap) |
-| DNS-based GSLB | Azure Private DNS Zones + ExternalDNS or custom controller |
+| DNS-based GSLB | Health-check controller + ExternalDNS + Azure Private DNS Zone (see below) |
+
+---
+
+## DNS-Based GSLB with ExternalDNS (Tetrate Scenario 3 Gap Closure)
+
+The Tetrate [edge-failover pattern](https://docs.tetrate.io/service-bridge/getting-started/use-cases/tier1-tier2/edge-failover) describes three failure scenarios for tiered gateway architectures. This repository's ExternalDNS + health-check controller integration directly addresses **Scenario 3**: the edge/gateway is still reachable but all local workload backends have failed. Without DNS GSLB, clients continue to be directed to the failing region, incurring unnecessary cross-region latency (Istio's in-mesh failover still works, but clients hit the wrong region first).
+
+### How the Open-Source GSLB Works
+
+The solution uses two components running in every cluster:
+
+**1. Health-Check Controller (`clusters/base/health-check/`)**
+- A Python+shell controller that continuously probes `my-api.my-app.svc.cluster.local:8080` directly via the Kubernetes Service ClusterIP — bypassing the Istio ingress gateway to avoid masking failures via cross-region failover
+- Tracks consecutive failures (configurable threshold: default 3, ~15s detection time)
+- On failure: deletes the `api-dns-record` Service in the `health-check` namespace, removing the ExternalDNS annotation
+- On recovery: recreates the `api-dns-record` Service, restoring the annotation
+- Exposes `/healthz` on port 8080 for external monitoring; returns 200 when healthy, 503 when all backends are down
+
+**2. ExternalDNS (`clusters/base/external-dns/`)**
+- Deployed with the `azure-private-dns` provider, watching Services with `external-dns.alpha.kubernetes.io/hostname` annotations
+- Uses `--policy=sync` so it removes A records when the annotated Service is deleted
+- Each cluster's ExternalDNS has a unique `--txt-owner-id` (`cluster-east` / `cluster-west`) to prevent cross-cluster interference
+- TXT ownership records (`externaldns-api.internal.contoso.com TXT`) track which cluster owns which A record
+
+**3. The `api-dns-record` Service (`clusters/base/health-check/externaldns-service.yaml`)**
+- An `ExternalName` Service in the `health-check` namespace pointing to `istio-ingressgateway.istio-system.svc.cluster.local`
+- Annotated with `external-dns.alpha.kubernetes.io/hostname: api.internal.contoso.com` and `ttl: "30"`
+- ExternalDNS resolves the ExternalName to the gateway's LoadBalancer IP and publishes it as an A record
+- When the health-check controller deletes this Service, ExternalDNS removes the A record (with `--policy=sync`)
+
+### Failover Timeline (Scenario 3)
+
+```
+t=0s   All my-api pods crash; gateway remains healthy
+t=5s   First probe failure (consecutive_failures=1)
+t=10s  Second probe failure (consecutive_failures=2)
+t=15s  Third probe failure → FAIL_THRESHOLD reached
+       Controller deletes api-dns-record Service
+t=25s  ExternalDNS polls (interval=10s), detects Service gone, removes A record
+t=25s  New DNS clients no longer receive the failing region's IP
+t=55s  Existing DNS clients' cached entry expires (TTL=30s from deletion)
+       All clients now directed to the surviving region
+```
+
+**Total worst-case: ~55s** (15s detection + 10s ExternalDNS poll + 30s TTL)
+
+### DNS GSLB vs. Istio In-Mesh Failover
+
+| Mechanism | Scope | Scenario |
+|---|---|---|
+| Istio outlier detection | In-mesh (ztunnel/waypoint) | Scenario 1: partial workload failure |
+| Istio locality failover | In-mesh (ztunnel/waypoint) | Scenario 2+3: cross-cluster routing |
+| ExternalDNS GSLB | External DNS resolution | Scenario 3: prevent directing new clients to dead region |
+
+These mechanisms are complementary: Istio handles in-mesh failover immediately, while ExternalDNS GSLB stops new connections from being routed to the failing region via DNS.
+
+### Tetrate vs. Open-Source GSLB Comparison
+
+| Capability | Tetrate TSE | This Solution |
+|---|---|---|
+| Health-based DNS failover | Native (built into TSE) | Health-check controller + ExternalDNS |
+| DNS provider | Configurable (multi-cloud) | Azure Private DNS Zone only |
+| Failover detection | TSE control plane monitors | Per-cluster shell/Python script |
+| DNS record management | Automatic | ExternalDNS with per-cluster ownership |
+| Private DNS support | Yes | Yes (azure-private-dns provider) |
+| Recovery (re-register) | Automatic | Automatic (controller recreates Service) |
+
+---
 
 ## Key Trade-offs vs. Tetrate
 
-1. **No single pane of glass** — You'll manage Istio config per-cluster (mitigate with GitOps/ArgoCD)
+1. **No single pane of glass** — You'll manage Istio config per-cluster (mitigate with GitOps/Flux)
 2. **Shared root CA management** — You own the PKI lifecycle (use HashiCorp Vault or cert-manager)
 3. **Cross-cluster API server access** — Private AKS clusters make remote secrets harder (need DNS forwarding)
-4. **Health-based DNS failover** — You must build this yourself (Tetrate handles it natively)
+4. **Health-based DNS failover** — Implemented with health-check controller + ExternalDNS (Tetrate handles it natively with lower complexity, but the open-source approach achieves equivalent functionality)
 
 This architecture gives you a fully private, multi-region, globally load-balanced service mesh using only open-source Istio and Azure-native networking. The complexity cost is real, but it's entirely achievable — and avoids vendor lock-in.

@@ -89,6 +89,7 @@ module aksClusters 'modules/aks.bicep' = [
       gitRepositoryUrl: gitRepositoryUrl
       gitRepositoryBranch: gitRepositoryBranch
       kustomizationPath: cluster.kustomizationPath
+      privateDnsZoneId: privateDns.outputs.id
     }
   }
 ]

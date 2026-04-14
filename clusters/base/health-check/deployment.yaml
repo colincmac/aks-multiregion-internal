@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-check-controller
+  namespace: health-check
+  labels:
+    app: health-check-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: health-check-controller
+  template:
+    metadata:
+      labels:
+        app: health-check-controller
+    spec:
+      serviceAccountName: health-check-controller
+      # Run as non-root for security
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: controller
+          # python:3.12-alpine includes both Python 3 (for the HTTP server)
+          # and curl/sh (for probing and kubectl interactions).
+          # kubectl is installed via initContainer and shared via emptyDir.
+          image: python:3.12-alpine
+          command: ["/bin/sh", "/config/entrypoint.sh"]
+          ports:
+            - name: healthz
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: health-check-config
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: kubectl-bin
+              mountPath: /usr/local/bin/kubectl
+              subPath: kubectl
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      initContainers:
+        - name: install-kubectl
+          image: bitnami/kubectl:1.30
+          command:
+            - cp
+            - /opt/bitnami/kubectl/bin/kubectl
+            - /kubectl-bin/kubectl
+          volumeMounts:
+            - name: kubectl-bin
+              mountPath: /kubectl-bin
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: health-check-config
+            defaultMode: 0555
+        - name: kubectl-bin
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

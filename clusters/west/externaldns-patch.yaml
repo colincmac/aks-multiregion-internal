@@ -1,0 +1,27 @@
+# Per-cluster ExternalDNS patch for the West cluster.
+# Overrides --txt-owner-id so this ExternalDNS instance only manages the
+# west cluster's A record contribution, and sets the correct Azure subscription
+# and resource group for the Private DNS Zone.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-dns
+  namespace: external-dns
+spec:
+  template:
+    spec:
+      containers:
+        - name: external-dns
+          args:
+            - --source=service
+            - --provider=azure-private-dns
+            - --azure-resource-group=rg-istio-mesh-global
+            - --azure-subscription-id=$(AZURE_SUBSCRIPTION_ID)
+            - --domain-filter=internal.contoso.com
+            - --policy=sync
+            - --registry=txt
+            - --txt-owner-id=cluster-west
+            - --txt-prefix=externaldns-
+            - --interval=10s
+            - --log-level=info
+            - --log-format=json

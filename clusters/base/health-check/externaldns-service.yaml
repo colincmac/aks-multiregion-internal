@@ -1,0 +1,27 @@
+# ExternalDNS-annotated Service managed dynamically by the health-check controller.
+#
+# When local my-api backends are healthy, this Service exists and ExternalDNS
+# uses its annotation to create/maintain an A record for api.internal.contoso.com
+# pointing to the Istio ingress gateway's ILB IP.
+#
+# When all local backends are unhealthy, the health-check controller deletes
+# this Service. ExternalDNS detects the absence of the annotation (due to the
+# --policy=sync flag) and removes the A record, stopping new traffic from being
+# directed to this region. This implements Tetrate's "Scenario 3" detection.
+#
+# NOTE: This file is also embedded in the health-check-config ConfigMap
+# (key: dns-service.yaml) so the controller can recreate it on recovery.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-dns-record
+  namespace: health-check
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: api.internal.contoso.com
+    external-dns.alpha.kubernetes.io/ttl: "30"
+spec:
+  # ExternalName delegates DNS resolution to the Istio ingress gateway Service.
+  # ExternalDNS resolves this to the gateway's LoadBalancer IP and publishes
+  # it as an A record in the Azure Private DNS Zone.
+  type: ExternalName
+  externalName: istio-ingressgateway.istio-system.svc.cluster.local

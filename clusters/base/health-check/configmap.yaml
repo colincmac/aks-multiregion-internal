@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: health-check-config
+  namespace: health-check
+data:
+  # ---------------------------------------------------------------------------
+  # Tunable parameters — override via Kustomize patch in per-cluster overlays
+  # ---------------------------------------------------------------------------
+  PROBE_TARGET: "http://my-api.my-app.svc.cluster.local:8080/"
+  PROBE_INTERVAL: "5"
+  FAIL_THRESHOLD: "3"
+  RECOVER_THRESHOLD: "2"
+  PROBE_TIMEOUT: "3"
+  DNS_SERVICE_NAME: "api-dns-record"
+  DNS_SERVICE_NAMESPACE: "health-check"
+  HTTP_PORT: "8080"
+
+  # ---------------------------------------------------------------------------
+  # dns-service.yaml — recreated by the controller when backends recover.
+  # The ExternalName resolves to the in-cluster Istio ingress gateway Service,
+  # so ExternalDNS picks up the gateway's LoadBalancer IP automatically.
+  # ---------------------------------------------------------------------------
+  dns-service.yaml: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: api-dns-record
+      namespace: health-check
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: api.internal.contoso.com
+        external-dns.alpha.kubernetes.io/ttl: "30"
+    spec:
+      type: ExternalName
+      externalName: istio-ingressgateway.istio-system.svc.cluster.local
+
+  # ---------------------------------------------------------------------------
+  # controller.sh — the main health-check loop.
+  # Runs as PID 1 alongside a lightweight HTTP server (served by Python).
+  # ---------------------------------------------------------------------------
+  controller.sh: |
+    #!/bin/sh
+    set -eu
+
+    PROBE_TARGET="${PROBE_TARGET:-http://my-api.my-app.svc.cluster.local:8080/}"
+    PROBE_INTERVAL="${PROBE_INTERVAL:-5}"
+    FAIL_THRESHOLD="${FAIL_THRESHOLD:-3}"
+    RECOVER_THRESHOLD="${RECOVER_THRESHOLD:-2}"
+    PROBE_TIMEOUT="${PROBE_TIMEOUT:-3}"
+    DNS_SERVICE_NAME="${DNS_SERVICE_NAME:-api-dns-record}"
+    DNS_SERVICE_NAMESPACE="${DNS_SERVICE_NAMESPACE:-health-check}"
+    STATUS_FILE="/tmp/health-status"
+    DNS_SERVICE_FILE="/config/dns-service.yaml"
+
+    consecutive_failures=0
+    consecutive_successes=0
+    # Start in unknown/unhealthy state; require RECOVER_THRESHOLD successful probes
+    # before publishing the DNS record. This avoids registering DNS for a backend
+    # that is already down at controller startup.
+    is_healthy=false
+
+    # Write initial status
+    echo "STARTING" > "${STATUS_FILE}"
+
+    apply_dns_service() {
+      echo "[controller] Applying DNS service (backends healthy)"
+      if ! kubectl apply -f "${DNS_SERVICE_FILE}"; then
+        echo "[controller] ERROR: Failed to apply DNS service — check RBAC permissions"
+        return 1
+      fi
+      echo "OK" > "${STATUS_FILE}"
+    }
+
+    delete_dns_service() {
+      echo "[controller] Deleting DNS service (backends unhealthy)"
+      if ! kubectl delete service "${DNS_SERVICE_NAME}" \
+        -n "${DNS_SERVICE_NAMESPACE}" --ignore-not-found=true; then
+        echo "[controller] ERROR: Failed to delete DNS service — check RBAC permissions"
+        return 1
+      fi
+      echo "UNHEALTHY" > "${STATUS_FILE}"
+    }
+
+    # Ensure the DNS service is absent at startup until we confirm health
+    delete_dns_service
+
+    while true; do
+      if curl -sf -o /dev/null -m "${PROBE_TIMEOUT}" "${PROBE_TARGET}"; then
+        consecutive_failures=0
+        consecutive_successes=$((consecutive_successes + 1))
+
+        if [ "${is_healthy}" = "false" ] && [ "${consecutive_successes}" -ge "${RECOVER_THRESHOLD}" ]; then
+          echo "[controller] Backends healthy after ${consecutive_successes} successes — registering DNS"
+          apply_dns_service
+          is_healthy=true
+        elif [ "${is_healthy}" = "true" ]; then
+          echo "OK" > "${STATUS_FILE}"
+        fi
+      else
+        consecutive_successes=0
+        consecutive_failures=$((consecutive_failures + 1))
+        echo "[controller] Probe failed (${consecutive_failures}/${FAIL_THRESHOLD}): ${PROBE_TARGET}"
+
+        if [ "${consecutive_failures}" -ge "${FAIL_THRESHOLD}" ] && [ "${is_healthy}" = "true" ]; then
+          echo "[controller] Fail threshold reached — deregistering DNS"
+          delete_dns_service
+          is_healthy=false
+        fi
+      fi
+
+      sleep "${PROBE_INTERVAL}"
+    done
+
+  # ---------------------------------------------------------------------------
+  # server.py — minimal HTTP server that exposes /healthz.
+  # Returns 200 when status file contains "OK", 503 otherwise.
+  # ---------------------------------------------------------------------------
+  server.py: |
+    import http.server
+    import os
+
+    STATUS_FILE = "/tmp/health-status"
+    HTTP_PORT   = int(os.environ.get("HTTP_PORT", "8080"))
+
+    class HealthHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/healthz":
+                self.send_response(404)
+                self.end_headers()
+                return
+            try:
+                with open(STATUS_FILE) as f:
+                    status = f.read().strip()
+            except FileNotFoundError:
+                status = "STARTING"
+
+            if status == "OK":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"OK\n")
+            else:
+                self.send_response(503)
+                self.end_headers()
+                self.wfile.write(f"UNHEALTHY: {status}\n".encode())
+
+        def log_message(self, fmt, *args):
+            # Suppress per-request access logs to keep output clean
+            pass
+
+    if __name__ == "__main__":
+        print(f"[server] Listening on :{HTTP_PORT}/healthz")
+        httpd = http.server.HTTPServer(("", HTTP_PORT), HealthHandler)
+        httpd.serve_forever()
+
+  # ---------------------------------------------------------------------------
+  # entrypoint.sh — launches both processes; kills both if either exits.
+  # ---------------------------------------------------------------------------
+  entrypoint.sh: |
+    #!/bin/sh
+    set -e
+
+    # Start the HTTP health server in the background
+    python3 /config/server.py &
+    SERVER_PID=$!
+
+    # Start the controller loop
+    /config/controller.sh &
+    CONTROLLER_PID=$!
+
+    # Poll both PIDs; exit (and restart the pod) if either process dies.
+    # Using a polling loop instead of 'wait -n' for POSIX sh / busybox compatibility.
+    while true; do
+      if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+        echo "[entrypoint] HTTP server (PID ${SERVER_PID}) exited — restarting pod"
+        kill "${CONTROLLER_PID}" 2>/dev/null || true
+        exit 1
+      fi
+      if ! kill -0 "${CONTROLLER_PID}" 2>/dev/null; then
+        echo "[entrypoint] Controller (PID ${CONTROLLER_PID}) exited — restarting pod"
+        kill "${SERVER_PID}" 2>/dev/null || true
+        exit 1
+      fi
+      sleep 5
+    done
