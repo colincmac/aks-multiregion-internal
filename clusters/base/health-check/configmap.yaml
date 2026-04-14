@@ -54,7 +54,10 @@ data:
 
     consecutive_failures=0
     consecutive_successes=0
-    is_healthy=true   # optimistic start; first probe will correct this
+    # Start in unknown/unhealthy state; require RECOVER_THRESHOLD successful probes
+    # before publishing the DNS record. This avoids registering DNS for a backend
+    # that is already down at controller startup.
+    is_healthy=false
 
     # Write initial status
     echo "STARTING" > "${STATUS_FILE}"
@@ -70,9 +73,8 @@ data:
         -n "${DNS_SERVICE_NAMESPACE}" --ignore-not-found=true && echo "UNHEALTHY" > "${STATUS_FILE}" || true
     }
 
-    # Ensure DNS service exists on first healthy probe
-    apply_dns_service
-    is_healthy=true
+    # Ensure the DNS service is absent at startup until we confirm health
+    delete_dns_service
 
     while true; do
       if curl -sf -o /dev/null -m "${PROBE_TIMEOUT}" "${PROBE_TARGET}"; then
@@ -80,7 +82,7 @@ data:
         consecutive_successes=$((consecutive_successes + 1))
 
         if [ "${is_healthy}" = "false" ] && [ "${consecutive_successes}" -ge "${RECOVER_THRESHOLD}" ]; then
-          echo "[controller] Backends recovered after ${consecutive_successes} successes — re-registering DNS"
+          echo "[controller] Backends healthy after ${consecutive_successes} successes — registering DNS"
           apply_dns_service
           is_healthy=true
         elif [ "${is_healthy}" = "true" ]; then
@@ -157,7 +159,18 @@ data:
     /config/controller.sh &
     CONTROLLER_PID=$!
 
-    # If either process exits, kill the other and exit non-zero
-    wait -n || true
-    kill "${SERVER_PID}" "${CONTROLLER_PID}" 2>/dev/null || true
-    exit 1
+    # Poll both PIDs; exit (and restart the pod) if either process dies.
+    # Using a polling loop instead of 'wait -n' for POSIX sh / busybox compatibility.
+    while true; do
+      if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+        echo "[entrypoint] HTTP server (PID ${SERVER_PID}) exited — restarting pod"
+        kill "${CONTROLLER_PID}" 2>/dev/null || true
+        exit 1
+      fi
+      if ! kill -0 "${CONTROLLER_PID}" 2>/dev/null; then
+        echo "[entrypoint] Controller (PID ${CONTROLLER_PID}) exited — restarting pod"
+        kill "${SERVER_PID}" 2>/dev/null || true
+        exit 1
+      fi
+      sleep 5
+    done

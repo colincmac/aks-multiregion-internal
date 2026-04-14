@@ -129,6 +129,13 @@ resource networkContributorAssignment 'Microsoft.Authorization/roleAssignments@2
 // ExternalDNS Workload Identity
 // ---------------------------------------------------------------------------
 
+// Parse the DNS zone resource ID components into named variables for clarity.
+// Resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/privateDnsZones/{name}
+var dnsZoneIdParts = !empty(privateDnsZoneId) ? split(privateDnsZoneId, '/') : []
+var dnsZoneSubscriptionId = !empty(privateDnsZoneId) ? dnsZoneIdParts[2] : ''
+var dnsZoneResourceGroup = !empty(privateDnsZoneId) ? dnsZoneIdParts[4] : ''
+var dnsZoneName = !empty(privateDnsZoneId) ? last(dnsZoneIdParts) : ''
+
 // User-Assigned Managed Identity for ExternalDNS
 resource externalDnsIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'mi-external-dns-${name}'
@@ -165,11 +172,8 @@ resource externalDnsDnsContributor 'Microsoft.Authorization/roleAssignments@2022
 
 // Reference the existing Private DNS Zone for role assignment scoping.
 resource privateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (!empty(privateDnsZoneId)) {
-  name: last(split(privateDnsZoneId, '/'))
-  scope: resourceGroup(
-    split(privateDnsZoneId, '/')[2],  // subscriptionId
-    split(privateDnsZoneId, '/')[4]   // resourceGroupName
-  )
+  name: dnsZoneName
+  scope: resourceGroup(dnsZoneSubscriptionId, dnsZoneResourceGroup)
 }
 
 // Flux extension
