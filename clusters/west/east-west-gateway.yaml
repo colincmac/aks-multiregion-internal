@@ -1,0 +1,20 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: east-west-gateway
+  namespace: istio-system
+  labels:
+    topology.istio.io/network: network-west
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-ilb"
+spec:
+  gatewayClassName: istio-east-west
+  listeners:
+    - name: hbone
+      port: 15008
+      protocol: HBONE
+      tls:
+        mode: Terminate
+        options:
+          gateway.istio.io/tls-terminate-mode: ISTIO_MUTUAL

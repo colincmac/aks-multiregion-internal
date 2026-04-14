@@ -16,7 +16,7 @@ param clusters = [
     addressPrefix: '10.1.0.0/16'
     aksSubnetPrefix: '10.1.0.0/20'
     ilbSubnetPrefix: '10.1.16.0/24'
-    kustomizationPath: './clusters/eastus2'
+    kustomizationPath: './clusters/east'
   }
   {
     name: 'centralus'
@@ -24,6 +24,6 @@ param clusters = [
     addressPrefix: '10.2.0.0/16'
     aksSubnetPrefix: '10.2.0.0/20'
     ilbSubnetPrefix: '10.2.16.0/24'
-    kustomizationPath: './clusters/centralus'
+    kustomizationPath: './clusters/west'
   }
 ]

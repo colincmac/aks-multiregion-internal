@@ -3,4 +3,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - peer-authentication.yaml
-  - cross-network-gateway.yaml
+  - istio-helm-repo.yaml
+  - gateway-api-crds.yaml
+  - helmrelease-istio-base.yaml
+  - helmrelease-istio-cni.yaml
