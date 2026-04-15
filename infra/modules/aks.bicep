@@ -198,6 +198,9 @@ resource fluxExtension 'Microsoft.KubernetesConfiguration/extensions@2025-03-01'
   properties: {
     extensionType: 'microsoft.flux'
     autoUpgradeMinorVersion: true
+    configurationSettings: {
+      'multiTenancy.enforce': 'false'
+    }
   }
 }
 
