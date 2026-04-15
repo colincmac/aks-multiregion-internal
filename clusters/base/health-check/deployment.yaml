@@ -74,7 +74,7 @@ spec:
               drop: ["ALL"]
       initContainers:
         - name: install-kubectl
-          image: bitnami/kubectl:sha256-ae43d1ee16cd63eee90031cc17b317013a236f459dd5982420d816b7e9a14764
+          image: bitnami/kubectl:latest
           command:
             - cp
             - /opt/bitnami/kubectl/bin/kubectl
