@@ -4,7 +4,6 @@ resources:
   - namespace.yaml
   - istio-helm-repo.yaml
   - helmrelease-istio-base.yaml
-  - helmrelease-istio-istiod.yaml
   - helmrelease-istio-cni.yaml
   - peer-authentication.yaml
 
