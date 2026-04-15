@@ -3,7 +3,7 @@ kind: Kustomization
 resources:
   - ../base/istio-system
   - ../base/my-app
-  # - ../base/health-check
+  - ../base/health-check
   - ../base/external-dns
   - helmrelease-istiod.yaml
   - helmrelease-ztunnel.yaml
