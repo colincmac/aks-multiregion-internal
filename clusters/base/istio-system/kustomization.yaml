@@ -5,5 +5,5 @@ resources:
   - istio-helm-repo.yaml
   - helmrelease-istio-base.yaml
   - helmrelease-istio-cni.yaml
-  - peer-authentication.yaml
+  # - peer-authentication.yaml
 
