@@ -36,11 +36,11 @@ spec:
     # Both point to httpbin.org for testing. To simulate east failure,
     # change this address to 192.0.2.1 (non-routable TEST-NET).
     - address: httpbin.org
-      locality: eastus2
+      locality: cluster-east
       labels:
         topology.istio.io/cluster: cluster-east
     - address: httpbin.org
-      locality: centralus
+      locality: cluster-west
       labels:
         topology.istio.io/cluster: cluster-west
   exportTo:
