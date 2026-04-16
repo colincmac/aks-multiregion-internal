@@ -11,4 +11,4 @@ spec:
     protocol: HBONE
     allowedRoutes:
       namespaces:
-        from: all
+        from: All
