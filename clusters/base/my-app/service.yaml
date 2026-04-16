@@ -6,7 +6,6 @@ metadata:
   labels:
     app: my-api
     istio.io/global: "true"
-    istio.io/use-waypoint: waypoint
 spec:
   selector:
     app: my-api

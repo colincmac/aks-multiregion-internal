@@ -8,11 +8,21 @@ spec:
     annotations:
       service.beta.kubernetes.io/azure-load-balancer-internal: "true"
       service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-ilb"
-  gatewayClassName: istio-waypoint
+  gatewayClassName: istio
   listeners:
-  - name: mesh
-    port: 15008
-    protocol: HBONE
-    allowedRoutes:
-      namespaces:
-        from: All
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: egress-cert
+      allowedRoutes:
+        namespaces:
+          from: All

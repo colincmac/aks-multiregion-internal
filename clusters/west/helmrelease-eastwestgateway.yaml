@@ -1,0 +1,40 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-eastwestgateway
+  namespace: istio-system
+spec:
+  interval: 1h
+  dependsOn:
+    - name: istiod
+  chart:
+    spec:
+      chart: gateway
+      version: "1.29.*"
+      sourceRef:
+        kind: HelmRepository
+        name: istio
+        namespace: flux-system
+  values:
+    name: istio-eastwestgateway
+    labels:
+      istio: eastwestgateway
+      topology.istio.io/network: network-west
+    service:
+      type: LoadBalancer
+      annotations:
+        service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+        service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-ilb"
+      ports:
+        - name: tls
+          port: 15443
+          targetPort: 15443
+        - name: tls-istiod
+          port: 15012
+          targetPort: 15012
+        - name: tls-webhook
+          port: 15017
+          targetPort: 15017
+    env:
+      ISTIO_META_REQUESTED_NETWORK_VIEW: network-west
+      ISTIO_META_ROUTER_MODE: sni-dnat
