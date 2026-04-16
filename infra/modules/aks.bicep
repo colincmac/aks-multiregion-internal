@@ -124,6 +124,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2026-01-01' = {
         vnetSubnetID: vnetSubnetId
         enableAutoScaling: false
         availabilityZones: ['1', '2', '3']
+        maxPods: 110
       }
       {
         name: 'workload1'
@@ -136,6 +137,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2026-01-01' = {
         vnetSubnetID: vnetSubnetId
         enableAutoScaling: true
         availabilityZones: ['1', '2', '3']
+        maxPods: 110
       }
     ]
   }
