@@ -337,13 +337,34 @@ kubectl logs -n health-check -l app=health-check-controller --context=aks-eastus
 
 ## Key Design Decisions
 
-- **Sidecar mode (not ambient)** — Each pod gets an `istio-proxy` sidecar injected via `istio-injection: enabled` namespace labels. No ztunnel or waypoint proxies needed.
-- **Cilium CNI — no istio-cni** — AKS uses Azure Overlay CNI with Cilium dataplane. Cilium handles all pod networking; `istio-cni` is not required and is kept commented out.
+- **Sidecar mode (not ambient)** — Each pod gets an `istio-proxy` sidecar injected via `istio-injection: enabled` namespace labels. No ztunnel or waypoint proxies needed. Rationale: [`docs/adr/0003-sidecar-vs-ambient.md`](docs/adr/0003-sidecar-vs-ambient.md).
+- **Cilium CNI — no istio-cni** — AKS uses Azure Overlay CNI with Cilium dataplane. Cilium handles all pod networking; `istio-cni` is not required and is kept commented out. Rationale: [`docs/adr/0002-cni-choice.md`](docs/adr/0002-cni-choice.md).
 - **TLS AUTO_PASSTHROUGH east-west** — Cross-cluster traffic uses the classic Istio east-west gateway pattern: TLS passthrough on port 15443 with `ISTIO_META_ROUTER_MODE: sni-dnat`. Each cluster has its own `istio-eastwestgateway` Helm release.
 - **Kubernetes Gateway API** — North-south ingress uses `gateway.networking.k8s.io/v1` `Gateway` + `HTTPRoute` instead of the legacy Istio `Gateway`/`VirtualService` API. Both work with sidecar mode.
-- **Two-tier DNS GSLB** — The health-check controller probes both the backend workload (`my-api:8080`) AND the ingress gateway (`istio-ingressgateway:15021/healthz/ready`). DNS is only registered when both tiers are healthy. This closes the tiered gateway failure gap that a workload-only probe misses.
+- **Two-tier DNS GSLB** — The health-check controller probes both the backend workload (`my-api:8080`) AND the ingress gateway (`istio-ingressgateway:15021/healthz/ready`). DNS is only registered when both tiers are healthy. This closes the tiered gateway failure gap that a workload-only probe misses. TTL / probe cadence rationale: [`docs/adr/0004-gslb-ttl-and-probe-cadence.md`](docs/adr/0004-gslb-ttl-and-probe-cadence.md). Replacing DNS-only GSLB with a real Tier-1 gateway is pending decision: [`docs/adr/0001-tier1-gateway-choice.md`](docs/adr/0001-tier1-gateway-choice.md).
 - **Flux HelmRelease for Istio** — No `helm install` or `istioctl install` commands. The Helm charts (base → istiod → eastwestgateway) are installed in dependency order by Flux.
 - **N-cluster scalability** — Define clusters in a single parameter array. VNet peering, DNS linking, and Flux configuration scale automatically.
 - **Multi-primary mesh** — Each cluster operates independently; no single point of failure for the control plane.
 - **Fully private** — No public IPs. All load balancers use `service.beta.kubernetes.io/azure-load-balancer-internal: "true"`, clusters use private API server endpoints, and DNS is via Azure Private DNS Zones.
-- **Shared root CA** — All clusters trust the same root certificate authority, enabling cross-cluster mTLS without terminating encryption at the gateway.
+- **Shared root CA** — All clusters trust the same root certificate authority, enabling cross-cluster mTLS without terminating encryption at the gateway. Rotation procedure: [`docs/runbooks/ca-rotation.md`](docs/runbooks/ca-rotation.md).
+
+## Enterprise-readiness
+
+- **Demo app** — `clusters/base/my-app/` now ships a real podinfo-based frontend (`my-api`) + backend (`my-api-backend`), with HPA, PDBs, PSA-`restricted` security contexts, per-cluster UI-message patches so responses clearly show which region served the request, and an optional `demo-traffic/` overlay with retries/canary/mirror/fault-injection/sticky-hash/cross-region-weighted examples.
+- **Default-deny zero-trust baseline** — `clusters/base/istio-system/authorization-policy-default-deny.yaml` installs a mesh-wide default-deny AuthorizationPolicy; per-namespace ALLOW policies whitelist each flow. Rationale: [`docs/adr/0005-default-deny-authz.md`](docs/adr/0005-default-deny-authz.md).
+- **Defense in depth** — Istio AuthorizationPolicies (L7) are layered with Kubernetes NetworkPolicies (L3/L4, enforced by Cilium).
+- **Documentation** — see [`docs/`](docs/) for ADRs, runbooks, threat model, and cost model.
+
+### Still-open work (tracked as ADRs / runbooks)
+
+| Area | Status | Where |
+|---|---|---|
+| Tier-1 gateway choice (dedicated AKS vs. Front Door vs. AppGw + X-region LB) | **Decision pending** | [`docs/adr/0001-tier1-gateway-choice.md`](docs/adr/0001-tier1-gateway-choice.md) |
+| Observability bundle (Azure Managed Prometheus + Grafana, Kiali, Jaeger) | Not started | separate PR |
+| cert-manager + Azure Key Vault issuer for intermediate CAs | Not started | separate PR; [`docs/runbooks/ca-rotation.md`](docs/runbooks/ca-rotation.md) describes the target state |
+| Health-check controller → Go controller-runtime operator with `MeshHealthCheck` CRD | Not started | separate PR |
+| GitOps-only post-deploy (External Secrets Operator, Flux-managed remote secrets) | Not started | separate PR |
+| Kyverno / Gatekeeper + cosign/ratify policies | Not started | separate PR |
+| Revisioned istiod canary-upgrade automation | Runbook only | [`docs/runbooks/istiod-canary-upgrade.md`](docs/runbooks/istiod-canary-upgrade.md) |
+| Azure Chaos Studio experiments + PR-gated CI | Not started | separate PR |
+| Azure PaaS active-active downstream demo (Cosmos DB, Service Bus) | Not started | separate PR |
