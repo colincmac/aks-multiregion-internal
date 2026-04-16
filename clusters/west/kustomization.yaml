@@ -7,8 +7,8 @@ resources:
   # - ../base/health-check
   - ../base/external-dns
   - helmrelease-istiod.yaml
-  # - helmrelease-ztunnel.yaml
-  - east-west-gateway.yaml
+  - helmrelease-eastwestgateway.yaml
+  - cross-network-gateway.yaml
 patches:
   - path: istio-system-patch.yaml
     target:

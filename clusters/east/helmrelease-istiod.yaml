@@ -7,25 +7,33 @@ spec:
   interval: 1h
   dependsOn:
     - name: istio-base
-    # - name: istio-cni
+    # - name: istio-cni  # Not needed — Cilium handles CNI
   chart:
     spec:
       chart: istiod
-      version: "1.29.2"
+      version: "1.29.*"
       sourceRef:
         kind: HelmRepository
         name: istio
         namespace: flux-system
   values:
-    profile: ambient
-    env:
-      AMBIENT_ENABLE_MULTI_NETWORK: "true"
-      AMBIENT_ENABLE_BAGGAGE: "true"
     global:
       meshID: shared-mesh
+      multiCluster:
+        clusterName: cluster-east
       network: network-east
-    multiCluster:
-      clusterName: cluster-east
+      proxy:
+        clusterDomain: cluster.local
+    meshConfig:
+      accessLogFile: /dev/stdout
+      defaultConfig:
+        proxyMetadata:
+          ISTIO_META_DNS_CAPTURE: "true"
+          ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+    pilot:
+      env:
+        EXTERNAL_ISTIOD: "false"
+        PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY: "true"
       # caCertificates:
       #   - pem: |
       #       -----BEGIN CERTIFICATE-----

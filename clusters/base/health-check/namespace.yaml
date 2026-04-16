@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: health-check
   labels:
-    istio.io/dataplane-mode: ambient
+    istio-injection: enabled

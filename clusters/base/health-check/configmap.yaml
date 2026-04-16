@@ -7,7 +7,13 @@ data:
   # ---------------------------------------------------------------------------
   # Tunable parameters — override via Kustomize patch in per-cluster overlays
   # ---------------------------------------------------------------------------
+  # Primary probe: direct backend workload (bypasses gateway, detects workload failure)
   PROBE_TARGET: "http://my-api.my-app.svc.cluster.local:8080/"
+  # Secondary probe: ingress gateway health endpoint (detects gateway-tier failure).
+  # Istio gateway exposes /healthz/ready on port 15021. Both probes must pass
+  # for DNS to be registered — implements a two-tier GSLB health check so that
+  # a failed gateway (even with healthy workloads) causes DNS deregistration.
+  GATEWAY_PROBE_TARGET: "http://istio-ingressgateway.istio-system.svc.cluster.local:15021/healthz/ready"
   PROBE_INTERVAL: "5"
   FAIL_THRESHOLD: "3"
   RECOVER_THRESHOLD: "2"
@@ -36,6 +42,11 @@ data:
 
   # ---------------------------------------------------------------------------
   # controller.sh — the main health-check loop.
+  # Implements two-tier GSLB: probes both the backend workload AND the ingress
+  # gateway. DNS is only registered when BOTH tiers are healthy. This mirrors
+  # the Tetrate tier1/tier2 failover pattern: if the gateway itself fails (even
+  # with healthy workloads), DNS is deregistered so clients fail over to another
+  # region's gateway instead of hitting the dead gateway.
   # Runs as PID 1 alongside a lightweight HTTP server (served by Python).
   # ---------------------------------------------------------------------------
   controller.sh: |
@@ -43,6 +54,7 @@ data:
     set -eu
 
     PROBE_TARGET="${PROBE_TARGET:-http://my-api.my-app.svc.cluster.local:8080/}"
+    GATEWAY_PROBE_TARGET="${GATEWAY_PROBE_TARGET:-}"
     PROBE_INTERVAL="${PROBE_INTERVAL:-5}"
     FAIL_THRESHOLD="${FAIL_THRESHOLD:-3}"
     RECOVER_THRESHOLD="${RECOVER_THRESHOLD:-2}"
@@ -63,7 +75,7 @@ data:
     echo "STARTING" > "${STATUS_FILE}"
 
     apply_dns_service() {
-      echo "[controller] Applying DNS service (backends healthy)"
+      echo "[controller] Applying DNS service (all tiers healthy)"
       if ! kubectl apply -f "${DNS_SERVICE_FILE}"; then
         echo "[controller] ERROR: Failed to apply DNS service — check RBAC permissions"
         return 1
@@ -72,7 +84,8 @@ data:
     }
 
     delete_dns_service() {
-      echo "[controller] Deleting DNS service (backends unhealthy)"
+      local reason="${1:-unhealthy}"
+      echo "[controller] Deleting DNS service (${reason})"
       if ! kubectl delete service "${DNS_SERVICE_NAME}" \
         -n "${DNS_SERVICE_NAMESPACE}" --ignore-not-found=true; then
         echo "[controller] ERROR: Failed to delete DNS service — check RBAC permissions"
@@ -81,16 +94,44 @@ data:
       echo "UNHEALTHY" > "${STATUS_FILE}"
     }
 
+    # probe_tier: probe a single HTTP target; returns 0 on success, 1 on failure.
+    probe_tier() {
+      local target="${1}"
+      local label="${2:-target}"
+      if curl -sf -o /dev/null -m "${PROBE_TIMEOUT}" "${target}"; then
+        return 0
+      else
+        echo "[controller] Probe failed (${label}): ${target}"
+        return 1
+      fi
+    }
+
     # Ensure the DNS service is absent at startup until we confirm health
-    delete_dns_service
+    delete_dns_service "startup"
 
     while true; do
-      if curl -sf -o /dev/null -m "${PROBE_TIMEOUT}" "${PROBE_TARGET}"; then
+      # Tier 1: probe backend workload directly (detects workload failures)
+      backend_ok=true
+      if ! probe_tier "${PROBE_TARGET}" "backend"; then
+        backend_ok=false
+      fi
+
+      # Tier 2: probe ingress gateway health endpoint (detects gateway-tier failures).
+      # This is the key two-tier GSLB check: a dead gateway with live workloads
+      # would otherwise still receive traffic from DNS round-robin.
+      gateway_ok=true
+      if [ -n "${GATEWAY_PROBE_TARGET}" ]; then
+        if ! probe_tier "${GATEWAY_PROBE_TARGET}" "gateway"; then
+          gateway_ok=false
+        fi
+      fi
+
+      if [ "${backend_ok}" = "true" ] && [ "${gateway_ok}" = "true" ]; then
         consecutive_failures=0
         consecutive_successes=$((consecutive_successes + 1))
 
         if [ "${is_healthy}" = "false" ] && [ "${consecutive_successes}" -ge "${RECOVER_THRESHOLD}" ]; then
-          echo "[controller] Backends healthy after ${consecutive_successes} successes — registering DNS"
+          echo "[controller] All tiers healthy after ${consecutive_successes} successes — registering DNS"
           apply_dns_service
           is_healthy=true
         elif [ "${is_healthy}" = "true" ]; then
@@ -99,11 +140,16 @@ data:
       else
         consecutive_successes=0
         consecutive_failures=$((consecutive_failures + 1))
-        echo "[controller] Probe failed (${consecutive_failures}/${FAIL_THRESHOLD}): ${PROBE_TARGET}"
-
+        echo "[controller] Probe failure ${consecutive_failures}/${FAIL_THRESHOLD} (backend_ok=${backend_ok} gateway_ok=${gateway_ok})"
         if [ "${consecutive_failures}" -ge "${FAIL_THRESHOLD}" ] && [ "${is_healthy}" = "true" ]; then
-          echo "[controller] Fail threshold reached — deregistering DNS"
-          delete_dns_service
+          if [ "${backend_ok}" = "false" ] && [ "${gateway_ok}" = "false" ]; then
+            echo "[controller] Fail threshold reached (backend + gateway) — deregistering DNS"
+          elif [ "${backend_ok}" = "false" ]; then
+            echo "[controller] Fail threshold reached (backend) — deregistering DNS"
+          else
+            echo "[controller] Fail threshold reached (gateway) — deregistering DNS"
+          fi
+          delete_dns_service "fail threshold reached"
           is_healthy=false
         fi
       fi

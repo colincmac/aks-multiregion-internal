@@ -12,7 +12,7 @@
 #
 # Verify which endpoint was selected:
 #   kubectl exec <pod> -- curl -s http://httpbin.org/anything/test
-#   # Check waypoint access logs for UPSTREAM_HOST:
+#   # Check sidecar access logs for UPSTREAM_HOST:
 #   kubectl logs -n istio-egress -l gateway.networking.k8s.io/gateway-name=egress-gateway -c istio-proxy
 # =============================================================================
 apiVersion: networking.istio.io/v1
@@ -20,9 +20,6 @@ kind: ServiceEntry
 metadata:
   name: httpbin-ext
   namespace: my-app
-  labels:
-    istio.io/use-waypoint-namespace: istio-egress
-    istio.io/use-waypoint: egress-gateway
 spec:
   hosts:
     - httpbin.org
@@ -48,7 +45,7 @@ spec:
 ---
 # HTTPRoute: rewrites to /anything/ so httpbin echoes back full request details.
 # Path rewriting happens BEFORE endpoint selection — you cannot vary the path
-# per endpoint. Use waypoint access logs to see which endpoint was chosen.
+# per endpoint. Use sidecar proxy access logs to see which endpoint was chosen.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
