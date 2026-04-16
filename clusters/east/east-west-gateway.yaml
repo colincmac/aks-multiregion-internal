@@ -5,10 +5,11 @@ metadata:
   namespace: istio-system
   labels:
     topology.istio.io/network: network-east
-  annotations:
-    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
-    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-ilb"
 spec:
+  infrastructure:
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-ilb"
   gatewayClassName: istio-east-west
   listeners:
     - name: hbone
