@@ -50,7 +50,7 @@ A fully private, multi-region service mesh architecture using **Istio (tradition
 This solution handles three distinct failure scenarios:
 
 ### Scenario 1 — Partial Workload Failure (single service down, cluster healthy)
-If a specific workload (e.g. `my-api`) fails health checks in one cluster but the rest of the cluster is healthy, outlier detection (`consecutive5xxErrors: 3`, `interval: 5s`) ejects only the unhealthy service endpoints. Traffic for that service fails over to healthy instances in another cluster while all other services in the same cluster continue operating normally. No DNS change is needed.
+If a specific workload (e.g. `my-api`) fails health checks in one cluster but the rest of the cluster is healthy, outlier detection (`consecutive5xxErrors: 1`, `interval: 1s`) ejects only the unhealthy service endpoints. Traffic for that service fails over to healthy instances in another cluster while all other services in the same cluster continue operating normally. No DNS change is needed.
 
 ### Scenario 2 — Full Regional Failure (entire cluster/network unreachable)
 If an entire cluster/region goes down (network loss, AKS outage), all its endpoints become unreachable. Istio's locality failover (`failoverPriority: [topology.istio.io/cluster]`) routes all in-mesh traffic to the surviving cluster(s) automatically. Additionally, because the Kubernetes Services annotated for ExternalDNS no longer exist (the cluster is down), ExternalDNS on the surviving cluster eventually cleans up stale TXT owner records, and DNS clients' TTL expiry redirects traffic away.

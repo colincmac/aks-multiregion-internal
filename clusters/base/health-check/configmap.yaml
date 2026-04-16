@@ -140,7 +140,7 @@ data:
       else
         consecutive_successes=0
         consecutive_failures=$((consecutive_failures + 1))
-
+        echo "[controller] Probe failure ${consecutive_failures}/${FAIL_THRESHOLD} (backend_ok=${backend_ok} gateway_ok=${gateway_ok})"
         if [ "${consecutive_failures}" -ge "${FAIL_THRESHOLD}" ] && [ "${is_healthy}" = "true" ]; then
           if [ "${backend_ok}" = "false" ] && [ "${gateway_ok}" = "false" ]; then
             echo "[controller] Fail threshold reached (backend + gateway) — deregistering DNS"
