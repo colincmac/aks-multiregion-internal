@@ -1,0 +1,34 @@
+# Tier-1 Gateway — Application Gateway for Containers private frontend.
+#
+# The `alb.networking.azure.io/alb-frontend` annotation binds this Gateway
+# listener to the private frontend created by infra/modules/tier1-agc.bicep
+# (stable per-region private IP). This IP is what the current DNS GSLB and
+# the future Azure Private Traffic Manager point at.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: tier1-agc
+  namespace: tier1-agc
+  annotations:
+    alb.networking.azure.io/alb-namespace: tier1-agc
+    alb.networking.azure.io/alb-name: tier1-agc
+    alb.networking.azure.io/alb-frontend: private-frontend
+spec:
+  gatewayClassName: azure-alb-external
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "api.internal.contoso.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            group: ""
+            name: tier1-agc-cert
+      allowedRoutes:
+        namespaces:
+          # Allow the HTTPRoute in this same namespace to attach. Tier-2
+          # application HTTPRoutes stay inside my-app and continue to attach
+          # to the in-cluster Istio Gateway.
+          from: Same

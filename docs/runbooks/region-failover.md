@@ -3,6 +3,14 @@
 Use this when a region is degraded or fully unreachable and you need to
 confirm (or force) that traffic has moved to the surviving region(s).
 
+> **Tier-1 note (ADR-0001, Option E):** once the Tier-1 AGC overlay
+> (`clusters/base/tier1-agc`) is wired in per region, the DNS A record
+> for `api.internal.contoso.com` points at the regional AGC private
+> frontend IP (not the Tier-2 ILB). Pre-flight and failover steps then
+> gain a Tier-1 layer — see "Tier-1 (AGC) checks" at the bottom of this
+> runbook. Until that wiring is done, the steps below continue to apply
+> unchanged.
+
 ## Symptoms
 
 - Clients report elevated latency or errors.
@@ -93,3 +101,41 @@ Follow [region-failback.md](region-failback.md) once the region is healthy.
 - If the mesh-wide default-deny AuthZ policy (ADR-0005) was reverted
   during incident response, verify explicit allow policies are still in
   place for `my-api` ← ingress and `my-api-backend` ← `my-api`.
+
+## Tier-1 (AGC) checks — applicable once ADR-0001 Option E is wired in
+
+```bash
+# Which AGC private frontend IP is DNS currently resolving to?
+dig +short @168.63.129.16 api.internal.contoso.com
+
+# AGC health — from Azure (each region):
+az network alb show \
+  -g rg-istio-mesh-eastus2 \
+  -n agc-istio-mesh-eastus2 \
+  --query 'properties.provisioningState'
+
+# Gateway API state in-cluster (each region):
+for CTX in aks-eastus2 aks-centralus; do
+  echo "--- $CTX ---"
+  kubectl --context=$CTX -n tier1-agc get gateway tier1-agc \
+    -o jsonpath='{.status.addresses[*].value}{"\n"}'
+  kubectl --context=$CTX -n tier1-agc get httproute tier1-to-tier2 \
+    -o jsonpath='{.status.parents[*].conditions[?(@.type=="Accepted")].status}{"\n"}'
+done
+```
+
+If Tier-1 AGC is healthy but Tier-2 is not, the Tier-1 probe in the
+health-check controller (ADR-0004 follow-up) still removes the region's
+AGC IP from the DNS record — no manual intervention is required. If
+AGC itself is the failure mode, force-delete `api-dns-record` in the
+affected region's `health-check` namespace as described above.
+
+### Future: Azure Private Traffic Manager
+
+When Azure Private Traffic Manager GAs, the ExternalDNS A record is
+replaced by a Private Traffic Manager profile whose endpoints are the
+same per-region AGC private IPs. Failover then happens at the Private
+Traffic Manager profile (endpoint health + DNS response weighting) and
+this runbook's "force-delete the ExternalDNS Service" step is replaced
+by "disable the endpoint in the Private Traffic Manager profile". The
+in-cluster Tier-1 and Tier-2 steps are unchanged.

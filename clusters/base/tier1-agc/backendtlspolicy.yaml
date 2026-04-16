@@ -1,0 +1,27 @@
+# Backend mTLS / SNI policy — AGC re-originates TLS to the Istio Tier-2
+# ingress gateway. The CA secret contains the trust anchor that Tier-2
+# presents on its 443 listener.
+#
+# Note: SPIFFE mesh identity terminates at AGC (see ADR-0001, Option E
+# cons). The mesh boundary resumes at Tier-2.
+apiVersion: alb.networking.azure.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: istio-ingress-backend-tls
+  namespace: tier1-agc
+spec:
+  targetRef:
+    group: ""
+    kind: Service
+    name: istio-ingressgateway
+    namespace: istio-system
+  default:
+    sni: api.internal.contoso.com
+    ports:
+      - port: 443
+    verify:
+      caCertificateRef:
+        group: ""
+        kind: Secret
+        name: istio-ingress-ca
+        namespace: tier1-agc

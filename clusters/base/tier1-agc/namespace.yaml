@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tier1-agc
+  labels:
+    # Tier-1 is outside the Istio data plane; do not inject sidecars.
+    istio-injection: disabled
