@@ -8,3 +8,4 @@ resources:
   - virtual-service.yaml
   - authorization-policy.yaml
   - waypoint.yaml
+  - service-entry.yaml

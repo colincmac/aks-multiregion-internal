@@ -1,13 +1,71 @@
 apiVersion: networking.istio.io/v1
 kind: ServiceEntry
 metadata:
-  name: httpbin-ext
+  name: httpbin-ext  
+  labels:
+    istio.io/use-waypoint-namespace: istio-egress
+    istio.io/use-waypoint: egress-gateway
 spec:
   hosts:
-  - httpbin.org
-  ports:
-  - number: 80
-    name: http
-    protocol: HTTP
-  resolution: DNS
+    - httpbin.org
   location: MESH_EXTERNAL
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+  resolution: DNS
+  endpoints:
+    - address: httpbin-eastus2.internal.contoso.com  # region-local endpoint
+      locality: us-east-2
+      labels:
+        topology.istio.io/cluster: cluster-east
+    - address: httpbin-centralus.internal.contoso.com  # remote region endpoint
+      locality: us-central
+      labels:
+        topology.istio.io/cluster: cluster-west
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: httpbin-ext
+spec:
+  parentRefs:
+  - kind: ServiceEntry
+    group: networking.istio.io
+    name: httpbin-ext
+  rules:
+    - timeouts:
+        request: 3s           # total request deadline
+        backendRequest: 2s    # per-attempt timeout
+      backendRefs:
+        - kind: Hostname
+          group: networking.istio.io
+          name: httpbin.org
+          port: 443
+---
+# apiVersion: networking.istio.io/v1alpha3
+# kind: EnvoyFilter
+# metadata:
+#   name: active-health-check
+#   namespace: istio-system
+# spec:
+#   workloadSelector:
+#     labels:
+#       istio: ingressgateway
+#   configPatches:
+#   - applyTo: CLUSTER
+#     match:
+#       context: GATEWAY
+#       cluster:
+#         service: my-service.default.svc.cluster.local
+#     patch:
+#       operation: MERGE
+#       value:
+#         health_checks:
+#         - timeout: 5s
+#           interval: 10s
+#           unhealthy_threshold: 3
+#           healthy_threshold: 2
+#           http_health_check:
+#             path: /health
+#             host: my-service.default.svc.cluster.local
