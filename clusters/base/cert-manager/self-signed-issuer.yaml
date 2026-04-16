@@ -1,0 +1,87 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bar-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bar-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: bar
+  secretName: bar-ca-selfsigned
+  issuerRef:
+    name: selfsigned-bar-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: bar
+spec:
+  ca:
+    secretName: bar-ca-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-foo-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: foo-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: foo
+  secretName: foo-ca-selfsigned
+  issuerRef:
+    name: selfsigned-foo-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: foo
+spec:
+  ca:
+    secretName: foo-ca-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-istio-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: istio-system
+  secretName: istio-ca-selfsigned
+  issuerRef:
+    name: selfsigned-istio-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: istio-system
+spec:
+  ca:
+    secretName: istio-ca-selfsigned
+

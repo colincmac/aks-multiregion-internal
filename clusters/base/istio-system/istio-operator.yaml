@@ -1,0 +1,101 @@
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  values:
+    pilot:
+      env:
+        EXTERNAL_CA: ISTIOD_RA_KUBERNETES_API
+  meshConfig:
+    defaultConfig:
+      proxyMetadata:
+        ISTIO_META_CERT_SIGNER: istio-system
+    caCertificates:
+    - pem: |
+        -----BEGIN CERTIFICATE-----
+        MIIC/jCCAeagAwIBAgIUdTiUBej0k4t8b61X6BHyO1tWSLwwDQYJKoZIhvcNAQEL
+        BQAwFzEVMBMGA1UEAxMMaXN0aW8tc3lzdGVtMB4XDTI2MDQxNTIwMDIwOVoXDTI2
+        MDcxNDIwMDIwOVowFzEVMBMGA1UEAxMMaXN0aW8tc3lzdGVtMIIBIjANBgkqhkiG
+        9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyRY89ABUQouo0LzUb8/1RKQS4snZlKC687Ji
+        3409mx6p/AhVOSFQVrPn5/Lzw6vniPan9YNAbCi0mFQIbvIRXtOj3kzdTlfKI+H6
+        zDCuHHM0B/NXaHWaJ+qcj6umQ3kBEE5pkV/w9cGg5ibAeEeodGuQax+CrSIX6U4H
+        hrPUyzHx8f2cT4bW3eYUctsy7JG5LarRd+3PnlaHgtvwfCJl6TbMyiF6F8qm7KB6
+        /RFq39IVHL2a0+i5SxjGsCvJtSVAXkdVvFybVr44n3/hBrkByC0liZNLnH9Lx13i
+        P8k/tFDedBp1Yp6ApYFXZ9DQLDR3wdkTXnImPeygK8IvMVEcSwIDAQABo0IwQDAO
+        BgNVHQ8BAf8EBAMCAqQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUrzZBtBQi
+        640lUe0IS/nW950gN9UwDQYJKoZIhvcNAQELBQADggEBAFWdlzD4F/hFjArZfAxC
+        HW27njKMZ0iG6a9cutYAWfYU9lehiApu26IEjJhGDQZo03zpTF/vgNw1K0Q3xt1d
+        gYusPcyydgkLaldpmz5TrAL2nSLEBJJxgfmXs0jru4vpA20CAalWi4i+AgYBSb2i
+        wX8/n0qtnL8GdHoycqkpxczpmV3+djKjzDrfvbIGFxs1o21y++CJN6FIIqd2G8ks
+        6wwRuPDE7piAnO+nvgH7USO0FxcMMk4LZ5aZOp46xe9KPdR4ybC5yKdvsmx9jV+L
+        jHkZN6nJ3Q2Om4yLPXPTQeWP3/NsHl10xffSokX/8FAiAiwQEnRpkgqGEKUoiFwZ
+        X5I=
+        -----END CERTIFICATE-----
+      certSigners:
+      - clusterissuers.cert-manager.io/istio-system
+    - pem: |
+        -----BEGIN CERTIFICATE-----
+        MIIC7DCCAdSgAwIBAgIUY/rTuwmTZiwCzNBbeSTcjy1e9+kwDQYJKoZIhvcNAQEL
+        BQAwDjEMMAoGA1UEAxMDZm9vMB4XDTI2MDQxNTIwMDIwOFoXDTI2MDcxNDIwMDIw
+        OFowDjEMMAoGA1UEAxMDZm9vMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+        AQEAvaLJ2bgubhZ+5QUpq0jnvMPhpkeIOuUbR+SMQ7AyLKuDL2nTxmIiHf6FGrLw
+        qOYoLDQnH4jO/lyBiFLCHCbzKp5LNGNIFXzZhbBgvKvtvERmIjkSKvviqSTDxlpd
+        R71jr0XMPdEEYhfT21QvMBX7fAMru/X2ky6Xjgy+BUAvfOOdG+FdGT4B43zuTcxI
+        rJ+da6Gy9cWQmbzGGIfFkLsQk5JrEi05fcsiSfFcC6GzxjCT0JkphegNpAju0uru
+        AO+mffsETveGQKdT+Y+RoaO4FtCllZWur9PMBivOeF9h03ibR+GWL7MtzWvZBt3p
+        aju72dGYL/bm19o/OOzCpH963QIDAQABo0IwQDAOBgNVHQ8BAf8EBAMCAqQwDwYD
+        VR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUJtQPxQYiazUgJgWje7wn6qjBrUowDQYJ
+        KoZIhvcNAQELBQADggEBAEVVKK/RAfBS2xf29wZ+HCM3K8Yuc1FbkRmeBqwaPwrs
+        je+MrtED/scxZCixnmKls1Djs7LTrJO9TA2mtMNo1NNwydgyGUA6LL70ntHreSW4
+        Yt+cFAckRwGfO00qQRiSfr+2a6LHWom/685/+1m122XN4q19les5Y4oxWm6/qcnL
+        mlfzxt0JrRoD7p9bPF0YgGdEnPMglBKjHRSYw2jHji29dR2Ggs+aFMeqtguc8C8Y
+        8dO+STFC+KAwY7TlP77j5FfvIuCYQ6A98NEcrGcP8DON3pM56a+6up8XtIjATsf4
+        p0OJAf19efs8Jn+zRPGVznH7OvTe1To6BFckiTX6eyI=
+        -----END CERTIFICATE-----
+      certSigners:
+      - clusterissuers.cert-manager.io/foo
+    - pem: |
+        -----BEGIN CERTIFICATE-----
+        MIIC7DCCAdSgAwIBAgIUffwsc38Z35q8mg37rvMc6KYaVRgwDQYJKoZIhvcNAQEL
+        BQAwDjEMMAoGA1UEAxMDYmFyMB4XDTI2MDQxNTIwMDIwOFoXDTI2MDcxNDIwMDIw
+        OFowDjEMMAoGA1UEAxMDYmFyMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+        AQEA20rWvYZuddCfO4d8ovM61DsavnYXkyw7ALy73E1EHtmSE9I5pum21ua7NItH
+        tGKkBtg6r7pz4zj48eKteMW83hXik1roOy2C72mKmha3HJG9RTAFW2H4HPB/ynpa
+        9GYIzLLOq0Y9MsHTmetOqFxxvcIxZcn/lVNkdmYQzd4UTTo7+kDU2P/ml4K7L3fm
+        urNT8Lub4hFPnBBVXlnrYPymvpL1MeQWUOpZm/SjYTcyjYAyWiPWFUyuXZtLU+Fh
+        g/EkKz5mXSFSmsL7QScjRkGavATg9qaz6IB0JFN2f5evyGXU5yPJIjq8WR6nZoJZ
+        HP0aRnCobLcmXOO8QmjpGdPAHwIDAQABo0IwQDAOBgNVHQ8BAf8EBAMCAqQwDwYD
+        VR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUisvWgFLDSCvmlHyNpIxYD47a+CAwDQYJ
+        KoZIhvcNAQELBQADggEBAGoSOEkRQfMbkTa9Xbund7hB76tNGmpm5M/Hm8H4sRt7
+        0+VkLjgmf4E0BrNzkwXSLGBJ+P5q9PIn8smz1M/kackXJ/JAfQBKfDMY8rxpjJuM
+        q27PTA7WvdhmUuaemnkl1L8EeKbJr4q500sEg5N0ZTDW0Sv7p9wJvjobQH6F9Wis
+        +yQX9JlXzUro7NdjbN31a1HJ6zziQSOPM+t2ITZY/+6ck75navJc95NQzugxRCFv
+        Neu/BZcUIcGu63Ikf2NSPvg4mN6vQbVuEJcAmjBEZSgNoYCPwLnqhIRaKh5KeayE
+        35VmHmy4QlFYbxCCC9CcukzIPM0M4FxFOuRoIibKltU=
+        -----END CERTIFICATE-----
+      certSigners:
+      - clusterissuers.cert-manager.io/bar
+  components:
+    pilot:
+      k8s:
+        env:
+        - name: CERT_SIGNER_DOMAIN
+          value: clusterissuers.cert-manager.io
+        - name: PILOT_CERT_PROVIDER
+          value: k8s.io/clusterissuers.cert-manager.io/istio-system
+        overlays:
+          - kind: ClusterRole
+            name: istiod-clusterrole-istio-system
+            patches:
+              - path: rules[-1]
+                value: |
+                  apiGroups:
+                  - certificates.k8s.io
+                  resourceNames:
+                  - clusterissuers.cert-manager.io/foo
+                  - clusterissuers.cert-manager.io/bar
+                  - clusterissuers.cert-manager.io/istio-system
+                  resources:
+                  - signers
+                  verbs:
+                  - approve
+

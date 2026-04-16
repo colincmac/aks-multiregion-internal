@@ -23,6 +23,13 @@ spec:
       multiCluster:
         clusterName: cluster-east
       network: network-east
+      pilotCertProvider: k8s.io/clusterissuers.cert-manager.io/istio-system
+    certSigners:
+      - clusterissuers.cert-manager.io/istio-system
+      - clusterissuers.cert-manager.io/foo
+      - clusterissuers.cert-manager.io/bar
     pilot:
       env:
         AMBIENT_ENABLE_MULTI_NETWORK: "true"
+        EXTERNAL_CA: ISTIOD_RA_KUBERNETES_API
+        CERT_SIGNER_DOMAIN: clusterissuers.cert-manager.io
