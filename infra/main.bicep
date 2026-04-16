@@ -55,21 +55,13 @@ module vnets 'modules/vnet.bicep' = [
       addressPrefix: cluster.addressPrefix
       aksSubnetPrefix: cluster.aksSubnetPrefix
       ilbSubnetPrefix: cluster.ilbSubnetPrefix
+      bastionSubnetPrefix: cluster.bastionSubnetPrefix
+      utilityVMSubnetPrefix: cluster.utilityVMSubnetPrefix
+
     }
   }
 ]
 
-module hubVnet 'modules/vnet.bicep' = {
-  name: 'vnet-${environmentName}-global'
-  scope: rgGlobal
-  params: {
-    name: 'vnet-${environmentName}-global'
-    location: globalResourcesLocation
-    addressPrefix: '10.10.0.0/16'
-    aksSubnetPrefix: '10.10.1.0/20'
-    ilbSubnetPrefix: '10.10.2.0/24'
-  }
-}
 // ---------------------------------------------------------------------------
 // VNet Peering — full mesh (every VNet peers with every other)
 // Each cluster gets a module that creates outbound peerings to all others.
@@ -87,12 +79,6 @@ var vnetDefinitions = [
   }
 ]
 
-var allVnetDefinitions = union(vnetDefinitions, [
-  {
-    id: hubVnet.outputs.id
-    name: hubVnet.outputs.name
-  }
-])
 
 module clusterPeerings 'modules/vnetPeeringSet.bicep' = [
   for (cluster, i) in clusters: {
@@ -104,15 +90,6 @@ module clusterPeerings 'modules/vnetPeeringSet.bicep' = [
     }
   }
 ]
-
-module hubPeerings 'modules/vnetPeeringSet.bicep' = {
-  name: 'peerings-from-global'
-  scope: rgGlobal
-  params: {
-    localVnetName: hubVnet.outputs.name
-    allVnets: allVnetDefinitions
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Private DNS Zone + VNet Links (all VNets linked)

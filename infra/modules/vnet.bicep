@@ -13,6 +13,12 @@ param aksSubnetPrefix string
 @description('Internal load balancer subnet prefix')
 param ilbSubnetPrefix string
 
+@description('Bastion subnet prefix')
+param bastionSubnetPrefix string
+
+@description('VM subnet prefix')
+param utilityVMSubnetPrefix string
+
 resource vnet 'Microsoft.Network/virtualNetworks@2025-05-01' = {
   name: name
   location: location
@@ -33,6 +39,18 @@ resource vnet 'Microsoft.Network/virtualNetworks@2025-05-01' = {
           addressPrefix: ilbSubnetPrefix
         }
       }
+      {
+        name: 'AzureBastionSubnet'
+        properties: {
+          addressPrefix: bastionSubnetPrefix
+        }
+      }
+      {
+        name: 'snet-utility'
+        properties: {
+          addressPrefix: utilityVMSubnetPrefix
+        }
+      }
     ]
   }
 }
@@ -41,3 +59,5 @@ output id string = vnet.id
 output name string = vnet.name
 output aksSubnetId string = vnet.properties.subnets[0].id
 output ilbSubnetId string = vnet.properties.subnets[1].id
+output bastionSubnetId string = vnet.properties.subnets[2].id
+output utilityVMSubnetId string = vnet.properties.subnets[3].id

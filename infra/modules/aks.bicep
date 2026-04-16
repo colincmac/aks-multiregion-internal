@@ -20,13 +20,13 @@ param gitRepositoryBranch string
 param kustomizationPath string
 
 @description('VM size for the system node pool')
-param systemNodeVmSize string = 'Standard_D4s_v5'
+param systemNodeVmSize string = 'Standard_D4ads_v6'
 
 @description('System node count')
 param systemNodeCount int = 3
 
 @description('VM size for the user node pool')
-param userNodeVmSize string = 'Standard_D4s_v5'
+param userNodeVmSize string = 'Standard_D4ads_v6'
 
 @description('Min user nodes for autoscaler')
 param userNodeMinCount int = 2
@@ -116,7 +116,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2026-01-01' = {
     }
     agentPoolProfiles: [
       {
-        name: 'system'
+        name: 'system1'
         count: systemNodeCount
         vmSize: systemNodeVmSize
         osType: 'Linux'
@@ -127,7 +127,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2026-01-01' = {
         maxPods: 110
       }
       {
-        name: 'workload1'
+        name: 'default1'
         count: userNodeMinCount
         minCount: userNodeMinCount
         maxCount: userNodeMaxCount
