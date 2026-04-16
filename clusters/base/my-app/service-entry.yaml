@@ -11,19 +11,24 @@ spec:
     - httpbin.org
   location: MESH_EXTERNAL
   ports:
+    - number: 80
+      name: http
+      protocol: HTTP
     - number: 443
       name: https
       protocol: TLS
   resolution: DNS
   endpoints:
     - address: httpbin-eastus2.internal.contoso.com  # region-local endpoint
-      locality: us-east-2
+      locality: eastus2
       labels:
         topology.istio.io/cluster: cluster-east
     - address: httpbin-centralus.internal.contoso.com  # remote region endpoint
-      locality: us-central
+      locality: centralus
       labels:
         topology.istio.io/cluster: cluster-west
+  exportTo:
+  - "."
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
