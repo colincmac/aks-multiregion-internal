@@ -6,4 +6,5 @@ resources:
   - helmrelease-istio-base.yaml
   # - helmrelease-istio-cni.yaml  # Not needed — Cilium handles CNI
   - peer-authentication.yaml
+  - authorization-policy-default-deny.yaml
 

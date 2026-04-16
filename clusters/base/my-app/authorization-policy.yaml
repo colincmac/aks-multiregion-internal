@@ -1,14 +1,82 @@
+# =============================================================================
+# AuthorizationPolicies for the my-app namespace.
+#
+# Layered approach (evaluated together by Istio):
+#   1. Default-deny: reject anything that no ALLOW rule authorizes.
+#      (A mesh-wide default-deny lives in istio-system; we also have one here
+#       so the namespace is locked-down even if the mesh baseline is removed.)
+#   2. Allow the ingress gateway to reach my-api (frontend).
+#   3. Allow my-api (frontend) to reach my-api-backend.
+#   4. Allow Istio control-plane probes + Prometheus scrape of metrics.
+# =============================================================================
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: deny-external
+  name: default-deny
+  namespace: my-app
+spec:
+  {}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-my-api
+  namespace: my-app
+spec:
+  action: ALLOW
+  selector:
+    matchLabels:
+      app: my-api
+  rules:
+    # Traffic from the Istio ingress gateway SA (k8s Gateway API istio-proxy).
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/my-app/sa/internal-api-gateway-istio
+      to:
+        - operation:
+            methods: ["GET", "POST", "HEAD", "OPTIONS"]
+    # Health-check controller probes the Service directly to detect workload
+    # failures (Tier-1 probe of the two-tier GSLB). Keep this narrow.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/health-check/sa/health-check-controller
+      to:
+        - operation:
+            methods: ["GET"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-my-api-to-backend
+  namespace: my-app
+spec:
+  action: ALLOW
+  selector:
+    matchLabels:
+      app: my-api-backend
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/my-app/sa/my-api
+      to:
+        - operation:
+            methods: ["GET", "POST", "HEAD", "OPTIONS"]
+---
+# Allow Prometheus to scrape podinfo's /metrics port. Scopes to the
+# metrics port only so application traffic is not broadened.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-metrics-scrape
   namespace: my-app
 spec:
   action: ALLOW
   rules:
-    - from:
-        - source:
-            principals: ["cluster.local/ns/my-app/sa/*"]
-      to:
+    - to:
         - operation:
-            methods: ["GET", "POST"]
+            ports: ["9797", "15020"]
+            methods: ["GET"]
+            paths: ["/metrics", "/stats/prometheus"]

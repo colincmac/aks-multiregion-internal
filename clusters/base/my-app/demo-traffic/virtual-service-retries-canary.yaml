@@ -1,0 +1,55 @@
+# =============================================================================
+# Demo: retries + timeouts + mirror + canary across subsets.
+#
+# VirtualService is used here (not HTTPRoute) because Istio's retry policy
+# is more expressive via VirtualService, and mirror/weight/fault behaviors
+# have first-class Istio knobs.
+#
+# This is an OPTIONAL overlay. It is NOT included by default in the base
+# `clusters/base/my-app/kustomization.yaml`; per-cluster overlays opt in by
+# adding `../base/my-app/demo-traffic` as a resource.
+# =============================================================================
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: my-api-traffic-mgmt-demo
+  namespace: my-app
+spec:
+  hosts:
+    - my-api.my-app.svc.cluster.local
+  http:
+    - name: canary-header
+      # Canary by header — trusted clients set x-canary=true to opt in.
+      match:
+        - headers:
+            x-canary:
+              exact: "true"
+      route:
+        - destination:
+            host: my-api.my-app.svc.cluster.local
+            subset: canary
+          weight: 100
+      retries:
+        attempts: 2
+        perTryTimeout: 2s
+        retryOn: connect-failure,refused-stream,unavailable,5xx
+      timeout: 5s
+
+    - name: default
+      # Default route with retries, timeout, and a shadow/mirror copy sent to
+      # the canary subset for parity testing without affecting client response.
+      route:
+        - destination:
+            host: my-api.my-app.svc.cluster.local
+            subset: stable
+          weight: 100
+      mirror:
+        host: my-api.my-app.svc.cluster.local
+        subset: canary
+      mirrorPercentage:
+        value: 10
+      retries:
+        attempts: 2
+        perTryTimeout: 2s
+        retryOn: connect-failure,refused-stream,unavailable,5xx
+      timeout: 5s

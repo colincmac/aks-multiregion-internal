@@ -9,7 +9,17 @@ metadata:
 spec:
   selector:
     app: my-api
+  # Service port stays at 8080 for stable public-facing addressing
+  # (HTTPRoute, health-check controller, cross-cluster callers).
+  # The container listens on 9898 (podinfo default), so targetPort: 9898
+  # bridges the two. If you change the container port, update targetPort
+  # here — the Service port should stay at 8080.
   ports:
     - name: http
       port: 8080
-      targetPort: 8080
+      targetPort: 9898
+      appProtocol: http
+    - name: grpc
+      port: 9999
+      targetPort: 9999
+      appProtocol: grpc

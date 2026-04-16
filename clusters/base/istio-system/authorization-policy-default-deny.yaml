@@ -1,0 +1,25 @@
+# =============================================================================
+# Mesh-wide default-deny AuthorizationPolicy.
+#
+# An AuthorizationPolicy installed in the root namespace (istio-system) with
+# no rules and no action applies to the ENTIRE mesh. An empty spec evaluates
+# to ALLOW with zero matching rules, which Istio then treats as an implicit
+# deny for any traffic not explicitly allowed by a higher-precedence ALLOW
+# policy.
+#
+# This flips the default posture from "allow anything with valid mTLS" to
+# "deny anything not explicitly allowed". Combine with per-namespace ALLOW
+# policies (see clusters/base/my-app/authorization-policy.yaml) to whitelist
+# each flow.
+#
+# If you need to disable this during an incident, scale the policy out by
+# either deleting this resource from the Kustomization or adding a broad
+# ALLOW policy with a tightly-scoped label selector.
+# =============================================================================
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny-all
+  namespace: istio-system
+spec:
+  {}
