@@ -1,7 +1,24 @@
+# =============================================================================
+# Testable external service failover using httpbin.org
+#
+# Both "regional" endpoints point to httpbin.org for testing. Locality labels
+# make Istio prefer the endpoint matching the local cluster's identity.
+#
+# Testing failover:
+#   1. Normal: traffic routes to the local-locality endpoint (both are httpbin.org)
+#   2. Simulate regional failure: change the local endpoint address to a
+#      non-routable IP (e.g. 192.0.2.1) — outlier detection will eject it
+#      and failover to the remote endpoint
+#
+# Verify which endpoint was selected:
+#   kubectl exec <pod> -- curl -s http://httpbin.org/anything/test
+#   # Check waypoint access logs for UPSTREAM_HOST:
+#   kubectl logs -n istio-egress -l gateway.networking.k8s.io/gateway-name=egress-gateway -c istio-proxy
+# =============================================================================
 apiVersion: networking.istio.io/v1
 kind: ServiceEntry
 metadata:
-  name: httpbin-ext  
+  name: httpbin-ext
   namespace: my-app
   labels:
     istio.io/use-waypoint-namespace: istio-egress
@@ -14,42 +31,49 @@ spec:
     - number: 80
       name: http
       protocol: HTTP
-    - number: 443
-      name: https
-      protocol: TLS
   resolution: DNS
   endpoints:
-    - address: httpbin-eastus2.internal.contoso.com  # region-local endpoint
+    # Both point to httpbin.org for testing. To simulate east failure,
+    # change this address to 192.0.2.1 (non-routable TEST-NET).
+    - address: httpbin.org
       locality: eastus2
       labels:
         topology.istio.io/cluster: cluster-east
-    - address: httpbin-centralus.internal.contoso.com  # remote region endpoint
+    - address: httpbin.org
       locality: centralus
       labels:
         topology.istio.io/cluster: cluster-west
   exportTo:
-  - "."
+    - "."
 ---
+# HTTPRoute: rewrites to /anything/ so httpbin echoes back full request details.
+# Path rewriting happens BEFORE endpoint selection — you cannot vary the path
+# per endpoint. Use waypoint access logs to see which endpoint was chosen.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: httpbin-ext
   namespace: my-app
-
 spec:
   parentRefs:
-  - kind: ServiceEntry
-    group: networking.istio.io
-    name: httpbin-ext
+    - kind: ServiceEntry
+      group: networking.istio.io
+      name: httpbin-ext
   rules:
     - timeouts:
-        request: 3s           # total request deadline
-        backendRequest: 2s    # per-attempt timeout
+        request: 3s
+        backendRequest: 2s
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /anything/
       backendRefs:
         - kind: Hostname
           group: networking.istio.io
           name: httpbin.org
-          port: 443
+          port: 80
 ---
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
@@ -59,42 +83,14 @@ metadata:
 spec:
   host: httpbin.org
   trafficPolicy:
-    tls:
-      mode: SIMPLE                     # TLS origination to external endpoint
     outlierDetection:
       consecutive5xxErrors: 3
       interval: 5s
       baseEjectionTime: 30s
-      maxEjectionPercent: 100          # allow ejecting all endpoints in one locality
+      maxEjectionPercent: 100
     loadBalancer:
       simple: ROUND_ROBIN
       localityLbSetting:
         enabled: true
         failoverPriority:
-          - topology.istio.io/cluster  # same strategy as your my-api DR
-# apiVersion: networking.istio.io/v1alpha3
-# kind: EnvoyFilter
-# metadata:
-#   name: active-health-check
-#   namespace: istio-system
-# spec:
-#   workloadSelector:
-#     labels:
-#       istio: ingressgateway
-#   configPatches:
-#   - applyTo: CLUSTER
-#     match:
-#       context: GATEWAY
-#       cluster:
-#         service: my-service.default.svc.cluster.local
-#     patch:
-#       operation: MERGE
-#       value:
-#         health_checks:
-#         - timeout: 5s
-#           interval: 10s
-#           unhealthy_threshold: 3
-#           healthy_threshold: 2
-#           http_health_check:
-#             path: /health
-#             host: my-service.default.svc.cluster.local
+          - topology.istio.io/cluster
