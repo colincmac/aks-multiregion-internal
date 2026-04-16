@@ -1,0 +1,30 @@
+# =============================================================================
+# Demo: consistent-hash ("sticky") load balancing.
+#
+# Use when the downstream has per-session state that makes round-robin
+# expensive (cache warmth, stateful subscriptions). Applies to the backend.
+#
+# Trade-off: sticky hashing REDUCES the benefit of locality failover because
+# requests keep routing to the same endpoint even when it's slow. Pair with
+# tight outlierDetection so an unhealthy endpoint is ejected quickly.
+# =============================================================================
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: my-api-backend-sticky-demo
+  namespace: my-app
+spec:
+  host: my-api-backend.my-app.svc.cluster.local
+  subsets:
+    - name: sticky
+      labels:
+        app: my-api-backend
+      trafficPolicy:
+        loadBalancer:
+          consistentHash:
+            httpHeaderName: x-user-id
+        outlierDetection:
+          consecutive5xxErrors: 2
+          interval: 5s
+          baseEjectionTime: 30s
+          maxEjectionPercent: 50

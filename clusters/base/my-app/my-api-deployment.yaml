@@ -1,0 +1,161 @@
+# =============================================================================
+# my-api (frontend) — active-active demo workload
+#
+# Uses stefanprodan/podinfo (MIT licensed): a small, inspectable Go service
+# that returns its hostname, message, and caller chain. The `--backend-url`
+# flag makes it call the downstream "my-api-backend" service on every /echo
+# request, which lets us demonstrate active-active-consuming-active-active.
+#
+# The per-cluster overlay patches PODINFO_UI_MESSAGE to include the cluster
+# name so responses clearly show which region served the request.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-api
+  namespace: my-app
+  labels:
+    app: my-api
+    app.kubernetes.io/name: my-api
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: my-app
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: my-api
+  template:
+    metadata:
+      labels:
+        app: my-api
+        app.kubernetes.io/name: my-api
+        app.kubernetes.io/component: frontend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9898"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: my-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 57000
+        runAsGroup: 57000
+        fsGroup: 57000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: my-api
+      containers:
+        - name: podinfod
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9898
+              protocol: TCP
+            - name: http-metrics
+              containerPort: 9797
+              protocol: TCP
+            - name: grpc
+              containerPort: 9999
+              protocol: TCP
+          command:
+            - ./podinfo
+            - --port=9898
+            - --port-metrics=9797
+            - --grpc-port=9999
+            - --grpc-service-name=podinfo
+            - --level=info
+            - --random-delay=false
+            - --random-error=false
+            - --backend-url=http://my-api-backend.my-app.svc.cluster.local:8080/echo
+          env:
+            - name: PODINFO_UI_COLOR
+              value: "#34577c"
+            # The per-cluster overlay patches this to include the cluster name.
+            - name: PODINFO_UI_MESSAGE
+              value: "my-api frontend (cluster unknown)"
+          livenessProbe:
+            exec:
+              command:
+                - podcli
+                - check
+                - http
+                - localhost:9898/healthz
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            exec:
+              command:
+                - podcli
+                - check
+                - http
+                - localhost:9898/readyz
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-api
+  namespace: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: my-api
+  namespace: my-app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: my-api

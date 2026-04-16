@@ -1,0 +1,51 @@
+# =============================================================================
+# Demo: cross-region weighted traffic shifting.
+#
+# Requires the subsets to be labelled by cluster via the DestinationRule below
+# (and the per-cluster overlay must label pods with topology.istio.io/cluster,
+# which istiod injects automatically from the ambient envvar on each pod).
+#
+# In the absence of a real Tier-1 gateway, this lives at the Tier-2 edge and
+# shifts the fraction of traffic that stays local vs. fails over to the
+# remote region. Flip weights (90/10 → 50/50 → 10/90) to model canary/region
+# migration without touching DNS.
+# =============================================================================
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: my-api-cluster-subsets
+  namespace: my-app
+spec:
+  host: my-api.my-app.svc.cluster.local
+  subsets:
+    - name: east
+      labels:
+        topology.istio.io/cluster: cluster-east
+    - name: west
+      labels:
+        topology.istio.io/cluster: cluster-west
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: my-api-cross-region-weighted
+  namespace: my-app
+spec:
+  hosts:
+    - my-api.my-app.svc.cluster.local
+  http:
+    - name: weighted
+      route:
+        - destination:
+            host: my-api.my-app.svc.cluster.local
+            subset: east
+          weight: 90
+        - destination:
+            host: my-api.my-app.svc.cluster.local
+            subset: west
+          weight: 10
+      retries:
+        attempts: 2
+        perTryTimeout: 2s
+        retryOn: connect-failure,refused-stream,unavailable,5xx
+      timeout: 5s

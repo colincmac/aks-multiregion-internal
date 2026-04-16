@@ -4,6 +4,7 @@ resources:
   - ../base/istio-system
   - ../base/istio-egress
   - ../base/my-app
+  # - ../base/my-app/demo-traffic   # Opt-in: retries/canary/fault/weighted demos
   # - ../base/health-check
   - ../base/external-dns
   - helmrelease-istiod.yaml
@@ -19,3 +20,4 @@ patches:
       kind: Deployment
       name: external-dns
       namespace: external-dns
+  - path: my-app-patch.yaml

@@ -13,6 +13,12 @@ spec:
         - path:
             type: PathPrefix
             value: /
+      timeouts:
+        # Overall request timeout and per-try backend budget. With the Istio
+        # retry policy below (attached via VirtualService in traffic-mgmt/),
+        # this leaves room for 2 retries within the overall request budget.
+        request: 5s
+        backendRequest: 2s
       backendRefs:
         - name: my-api
           port: 8080

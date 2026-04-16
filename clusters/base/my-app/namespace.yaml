@@ -4,3 +4,9 @@ metadata:
   name: my-app
   labels:
     istio-injection: enabled
+    # Pod Security Admission — restricted baseline.
+    # Podinfo and our other demo workloads comply with `restricted`.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

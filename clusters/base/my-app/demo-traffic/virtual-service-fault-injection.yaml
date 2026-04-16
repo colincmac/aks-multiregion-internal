@@ -1,0 +1,38 @@
+# =============================================================================
+# Demo: fault injection (delay + abort) for resilience testing.
+#
+# Flip `apply` on the delay or abort rule to validate that clients retry,
+# circuit-break, and fail over correctly. DO NOT apply this to production.
+# =============================================================================
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: my-api-backend-fault-demo
+  namespace: my-app
+spec:
+  hosts:
+    - my-api-backend.my-app.svc.cluster.local
+  http:
+    - name: abort-10pct
+      fault:
+        # Inject HTTP 503 on 10% of requests. Combined with the frontend's
+        # retries (2 attempts) and the backend's outlier detection
+        # (consecutive5xxErrors: 3), this should be visibly absorbed.
+        abort:
+          percentage:
+            value: 10.0
+          httpStatus: 503
+      route:
+        - destination:
+            host: my-api-backend.my-app.svc.cluster.local
+    - name: delay-5pct
+      fault:
+        # Inject 2s delay on 5% of requests. Combined with a 2s per-try
+        # timeout this forces retries; a 5s overall timeout caps the worst case.
+        delay:
+          percentage:
+            value: 5.0
+          fixedDelay: 2s
+      route:
+        - destination:
+            host: my-api-backend.my-app.svc.cluster.local

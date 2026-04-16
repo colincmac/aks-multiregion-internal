@@ -1,19 +1,23 @@
 # =============================================================================
-# Testable external service failover using httpbin.org
+# Active-active external SaaS downstream — reference pattern.
 #
-# Both "regional" endpoints point to httpbin.org for testing. Locality labels
-# make Istio prefer the endpoint matching the local cluster's identity.
+# Previously this ServiceEntry had *both* locality endpoints pointing at
+# `httpbin.org`, which cannot demonstrate real locality-based failover.
+# This version models two **distinct** regional public endpoints:
+#   * cluster-east  → httpbin.org        (the "US" endpoint)
+#   * cluster-west  → eu.httpbin.org     (the "EU" endpoint)
+# Both hostnames are reachable for demo purposes; swapping one address to a
+# non-routable IP (e.g. 192.0.2.1) forces outlier detection to eject the
+# local endpoint and fail over to the remote one.
+#
+# Note on "fully private" posture: this demo calls the public internet. For
+# fully-private environments substitute two private regional endpoints (e.g.
+# an Azure PaaS paired-region FQDN, or two internal services fronted by
+# Azure Private Link) and keep the same locality-labelled endpoints shape.
 #
 # Testing failover:
-#   1. Normal: traffic routes to the local-locality endpoint (both are httpbin.org)
-#   2. Simulate regional failure: change the local endpoint address to a
-#      non-routable IP (e.g. 192.0.2.1) — outlier detection will eject it
-#      and failover to the remote endpoint
-#
-# Verify which endpoint was selected:
-#   kubectl exec <pod> -- curl -s http://httpbin.org/anything/test
-#   # Check sidecar access logs for UPSTREAM_HOST:
-#   kubectl logs -n istio-egress -l gateway.networking.k8s.io/gateway-name=egress-gateway -c istio-proxy
+#   kubectl exec <pod> -n my-app -- curl -s http://httpbin.org/anything/test
+#   # Check sidecar access logs for UPSTREAM_HOST to see which endpoint served.
 # =============================================================================
 apiVersion: networking.istio.io/v1
 kind: ServiceEntry
@@ -30,13 +34,11 @@ spec:
       protocol: HTTP
   resolution: DNS
   endpoints:
-    # Both point to httpbin.org for testing. To simulate east failure,
-    # change this address to 192.0.2.1 (non-routable TEST-NET).
     - address: httpbin.org
       locality: cluster-east
       labels:
         topology.istio.io/cluster: cluster-east
-    - address: httpbin.org
+    - address: eu.httpbin.org
       locality: cluster-west
       labels:
         topology.istio.io/cluster: cluster-west

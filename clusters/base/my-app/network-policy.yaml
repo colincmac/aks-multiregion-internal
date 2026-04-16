@@ -1,0 +1,106 @@
+# =============================================================================
+# NetworkPolicies — defense in depth alongside the Istio AuthorizationPolicies.
+#
+# Istio AuthZ operates at L7 and requires the sidecar; NetworkPolicy operates
+# at L3/L4 and is enforced by the CNI (Cilium on AKS). Layering both means:
+#   * If a sidecar is bypassed or misconfigured, CNI still blocks unauthorized
+#     TCP traffic.
+#   * If a CNI NetworkPolicy is missing, Istio AuthZ still blocks based on
+#     SPIFFE identity.
+#
+# Scope: deny all ingress into the namespace by default; allow the specific
+# flows that make the demo work. Egress is left open so that the sidecar,
+# DNS, istiod, and the east-west gateway can be reached; add egress restrictions
+# once the environment-specific IP/port baseline is understood.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: my-app
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Allow traffic from the istio-ingress (same ns as the Gateway) and from the
+# health-check controller to the my-api frontend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-my-api
+  namespace: my-app
+spec:
+  podSelector:
+    matchLabels:
+      app: my-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Gateway API managed ingress lives in the same namespace as the
+        # Gateway resource (my-app) and is labelled by the controller.
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: internal-api-gateway
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: health-check
+        # Allow cross-cluster traffic that arrives through the east-west
+        # gateway (which lives in istio-system on every cluster).
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 9898
+        - protocol: TCP
+          port: 9999
+---
+# Allow the frontend to call the backend on port 9898. Cross-cluster calls
+# arrive via the east-west gateway, which looks like traffic from the
+# istio-system namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-my-api-to-backend
+  namespace: my-app
+spec:
+  podSelector:
+    matchLabels:
+      app: my-api-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: my-api
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 9898
+---
+# Allow Prometheus (whatever namespace it lives in) to scrape podinfo
+# metrics and the istio-proxy Prometheus endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metrics-scrape
+  namespace: my-app
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              monitoring: "true"
+      ports:
+        - protocol: TCP
+          port: 9797
+        - protocol: TCP
+          port: 15020

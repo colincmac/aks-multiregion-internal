@@ -1,0 +1,33 @@
+# Per-cluster UI-message patches so podinfo responses show which region
+# served the request. Applied via the east/west kustomization.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-api
+  namespace: my-app
+spec:
+  template:
+    spec:
+      containers:
+        - name: podinfod
+          env:
+            - name: PODINFO_UI_COLOR
+              value: "#7c3aed"
+            - name: PODINFO_UI_MESSAGE
+              value: "my-api frontend — cluster-west"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-api-backend
+  namespace: my-app
+spec:
+  template:
+    spec:
+      containers:
+        - name: podinfod
+          env:
+            - name: PODINFO_UI_COLOR
+              value: "#b45309"
+            - name: PODINFO_UI_MESSAGE
+              value: "my-api-backend — cluster-west"
