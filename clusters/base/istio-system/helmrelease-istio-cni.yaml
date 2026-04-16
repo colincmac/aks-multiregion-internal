@@ -15,5 +15,3 @@ spec:
         kind: HelmRepository
         name: istio
         namespace: flux-system
-  values:
-    profile: ambient

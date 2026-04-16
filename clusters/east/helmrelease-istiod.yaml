@@ -7,7 +7,7 @@ spec:
   interval: 1h
   dependsOn:
     - name: istio-base
-    - name: istio-cni
+    # - name: istio-cni
   chart:
     spec:
       chart: istiod
