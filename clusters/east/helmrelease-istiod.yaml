@@ -19,11 +19,13 @@ spec:
   values:
     profile: ambient
     env:
-      - name: AMBIENT_ENABLE_MULTI_NETWORK
-        value: "true"
-      - name: AMBIENT_ENABLE_BAGGAGE
-        value: "true"
-
+      AMBIENT_ENABLE_MULTI_NETWORK: "true"
+      AMBIENT_ENABLE_BAGGAGE: "true"
+    global:
+      meshID: shared-mesh
+      network: network-east
+    multiCluster:
+      clusterName: cluster-east
       # caCertificates:
       #   - pem: |
       #       -----BEGIN CERTIFICATE-----
@@ -89,8 +91,4 @@ spec:
       #       -----END CERTIFICATE-----
       #     certSigners:
       #     - clusterissuers.cert-manager.io/bar
-    global:
-      meshID: shared-mesh
-      multiCluster:
-        clusterName: cluster-east
-      network: network-east
+

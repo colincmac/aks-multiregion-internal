@@ -20,9 +20,9 @@ spec:
     profile: ambient
     global:
       meshID: shared-mesh
-      multiCluster:
-        clusterName: cluster-west
       network: network-west
-    pilot:
-      env:
-        AMBIENT_ENABLE_MULTI_NETWORK: "true"
+    multiCluster:
+      clusterName: cluster-west
+    env:
+      AMBIENT_ENABLE_MULTI_NETWORK: "true"
+      AMBIENT_ENABLE_BAGGAGE: "true"
