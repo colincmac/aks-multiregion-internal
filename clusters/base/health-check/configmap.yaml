@@ -14,6 +14,12 @@ data:
   # for DNS to be registered — implements a two-tier GSLB health check so that
   # a failed gateway (even with healthy workloads) causes DNS deregistration.
   GATEWAY_PROBE_TARGET: "http://istio-ingressgateway.istio-system.svc.cluster.local:15021/healthz/ready"
+  # Tier-1 (AGC) gateway and namespace for the controller to read frontend IP.
+  # When the Gateway object exists and has an address, the controller probes the
+  # AGC frontend over HTTPS and uses its IP as the ExternalDNS A-record target.
+  # Set to empty strings to disable Tier-1 integration (e.g., before AGC is deployed).
+  TIER1_GATEWAY_NAME: "tier1-agc"
+  TIER1_GATEWAY_NAMESPACE: "tier1-agc"
   PROBE_INTERVAL: "5"
   FAIL_THRESHOLD: "3"
   RECOVER_THRESHOLD: "2"
@@ -23,9 +29,10 @@ data:
   HTTP_PORT: "8080"
 
   # ---------------------------------------------------------------------------
-  # dns-service.yaml — recreated by the controller when backends recover.
-  # The ExternalName resolves to the in-cluster Istio ingress gateway Service,
-  # so ExternalDNS picks up the gateway's LoadBalancer IP automatically.
+  # dns-service.yaml — fallback template used when no Tier-1 AGC frontend IP
+  # is available. Points ExternalDNS at the Tier-2 Istio ingress gateway ILB.
+  # When the AGC Gateway has an address, the controller generates the service
+  # dynamically with the AGC frontend IP as the external-dns target annotation.
   # ---------------------------------------------------------------------------
   dns-service.yaml: |
     apiVersion: v1
@@ -42,11 +49,15 @@ data:
 
   # ---------------------------------------------------------------------------
   # controller.sh — the main health-check loop.
-  # Implements two-tier GSLB: probes both the backend workload AND the ingress
-  # gateway. DNS is only registered when BOTH tiers are healthy. This mirrors
-  # the Tetrate tier1/tier2 failover pattern: if the gateway itself fails (even
-  # with healthy workloads), DNS is deregistered so clients fail over to another
-  # region's gateway instead of hitting the dead gateway.
+  # Implements three-tier GSLB health checking:
+  #   Tier 0 (AGC/Tier-1): probes the AGC private frontend via HTTPS.
+  #                         Frontend IP is discovered dynamically from the
+  #                         Gateway status. When available, the DNS A-record
+  #                         target is also switched to the AGC frontend IP
+  #                         (per ADR-0001 Option E).
+  #   Tier 1 (backend):     direct workload probe, detects workload failure.
+  #   Tier 2 (gateway):     Istio ingress gateway /healthz/ready probe.
+  # DNS is only registered when ALL active tiers are healthy.
   # Runs as PID 1 alongside a lightweight HTTP server (served by Python).
   # ---------------------------------------------------------------------------
   controller.sh: |
@@ -55,6 +66,8 @@ data:
 
     PROBE_TARGET="${PROBE_TARGET:-http://my-api.my-app.svc.cluster.local:8080/}"
     GATEWAY_PROBE_TARGET="${GATEWAY_PROBE_TARGET:-}"
+    TIER1_GATEWAY_NAME="${TIER1_GATEWAY_NAME:-}"
+    TIER1_GATEWAY_NAMESPACE="${TIER1_GATEWAY_NAMESPACE:-}"
     PROBE_INTERVAL="${PROBE_INTERVAL:-5}"
     FAIL_THRESHOLD="${FAIL_THRESHOLD:-3}"
     RECOVER_THRESHOLD="${RECOVER_THRESHOLD:-2}"
@@ -63,6 +76,7 @@ data:
     DNS_SERVICE_NAMESPACE="${DNS_SERVICE_NAMESPACE:-health-check}"
     STATUS_FILE="/tmp/health-status"
     DNS_SERVICE_FILE="/config/dns-service.yaml"
+    AGC_DNS_SERVICE_FILE="/tmp/dns-service-agc.yaml"
 
     consecutive_failures=0
     consecutive_successes=0
@@ -74,11 +88,57 @@ data:
     # Write initial status
     echo "STARTING" > "${STATUS_FILE}"
 
+    # get_agc_frontend_ip: reads the AGC private frontend IP from the Gateway
+    # status. Returns empty string if the Gateway is not present or has no
+    # address assigned yet.
+    get_agc_frontend_ip() {
+      if [ -z "${TIER1_GATEWAY_NAME}" ] || [ -z "${TIER1_GATEWAY_NAMESPACE}" ]; then
+        echo ""
+        return 0
+      fi
+      kubectl get gateway "${TIER1_GATEWAY_NAME}" \
+        -n "${TIER1_GATEWAY_NAMESPACE}" \
+        -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || echo ""
+    }
+
+    # build_agc_dns_service: writes a headless Service manifest whose
+    # external-dns.alpha.kubernetes.io/target annotation is the AGC frontend IP.
+    # ExternalDNS uses this annotation value directly as the A-record target.
+    build_agc_dns_service() {
+      local agc_ip="${1}"
+      cat > "${AGC_DNS_SERVICE_FILE}" <<EOF
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${DNS_SERVICE_NAME}
+      namespace: ${DNS_SERVICE_NAMESPACE}
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: api.internal.contoso.com
+        external-dns.alpha.kubernetes.io/ttl: "30"
+        external-dns.alpha.kubernetes.io/target: "${agc_ip}"
+    spec:
+      type: ClusterIP
+      clusterIP: None
+      selector: {}
+    EOF
+    }
+
     apply_dns_service() {
-      echo "[controller] Applying DNS service (all tiers healthy)"
-      if ! kubectl apply -f "${DNS_SERVICE_FILE}"; then
-        echo "[controller] ERROR: Failed to apply DNS service — check RBAC permissions"
-        return 1
+      local agc_ip
+      agc_ip=$(get_agc_frontend_ip)
+      if [ -n "${agc_ip}" ]; then
+        echo "[controller] Applying DNS service with AGC frontend IP ${agc_ip}"
+        build_agc_dns_service "${agc_ip}"
+        if ! kubectl apply -f "${AGC_DNS_SERVICE_FILE}"; then
+          echo "[controller] ERROR: Failed to apply AGC DNS service — check RBAC permissions"
+          return 1
+        fi
+      else
+        echo "[controller] Applying DNS service (Tier-2 ILB fallback — AGC not yet available)"
+        if ! kubectl apply -f "${DNS_SERVICE_FILE}"; then
+          echo "[controller] ERROR: Failed to apply DNS service — check RBAC permissions"
+          return 1
+        fi
       fi
       echo "OK" > "${STATUS_FILE}"
     }
@@ -106,19 +166,44 @@ data:
       fi
     }
 
+    # probe_agc: probe the AGC private frontend over HTTPS using the discovered IP.
+    # Uses -k (insecure) because the AGC certificate is a private CA cert.
+    # Returns 0 if AGC frontend is reachable, 1 otherwise.
+    probe_agc() {
+      local ip="${1}"
+      if curl -sfk -o /dev/null -m "${PROBE_TIMEOUT}" \
+           -H "Host: api.internal.contoso.com" \
+           "https://${ip}/"; then
+        return 0
+      else
+        echo "[controller] AGC Tier-1 probe failed: https://${ip}/"
+        return 1
+      fi
+    }
+
     # Ensure the DNS service is absent at startup until we confirm health
     delete_dns_service "startup"
 
     while true; do
-      # Tier 1: probe backend workload directly (detects workload failures)
+      # Discover AGC frontend IP (empty if AGC is not yet deployed)
+      agc_ip=$(get_agc_frontend_ip)
+
+      # AGC Tier-1 probe: only when the Gateway has an assigned address.
+      tier1_ok=true
+      if [ -n "${agc_ip}" ]; then
+        if ! probe_agc "${agc_ip}"; then
+          tier1_ok=false
+        fi
+      fi
+
+      # Backend probe: direct workload (detects workload failures)
       backend_ok=true
       if ! probe_tier "${PROBE_TARGET}" "backend"; then
         backend_ok=false
       fi
 
-      # Tier 2: probe ingress gateway health endpoint (detects gateway-tier failures).
-      # This is the key two-tier GSLB check: a dead gateway with live workloads
-      # would otherwise still receive traffic from DNS round-robin.
+      # Tier-2 gateway probe: Istio ingress gateway /healthz/ready
+      # (detects gateway-tier failures independently of workload health).
       gateway_ok=true
       if [ -n "${GATEWAY_PROBE_TARGET}" ]; then
         if ! probe_tier "${GATEWAY_PROBE_TARGET}" "gateway"; then
@@ -126,7 +211,7 @@ data:
         fi
       fi
 
-      if [ "${backend_ok}" = "true" ] && [ "${gateway_ok}" = "true" ]; then
+      if [ "${tier1_ok}" = "true" ] && [ "${backend_ok}" = "true" ] && [ "${gateway_ok}" = "true" ]; then
         consecutive_failures=0
         consecutive_successes=$((consecutive_successes + 1))
 
@@ -140,15 +225,8 @@ data:
       else
         consecutive_successes=0
         consecutive_failures=$((consecutive_failures + 1))
-        echo "[controller] Probe failure ${consecutive_failures}/${FAIL_THRESHOLD} (backend_ok=${backend_ok} gateway_ok=${gateway_ok})"
+        echo "[controller] Probe failure ${consecutive_failures}/${FAIL_THRESHOLD} (tier1_ok=${tier1_ok} backend_ok=${backend_ok} gateway_ok=${gateway_ok})"
         if [ "${consecutive_failures}" -ge "${FAIL_THRESHOLD}" ] && [ "${is_healthy}" = "true" ]; then
-          if [ "${backend_ok}" = "false" ] && [ "${gateway_ok}" = "false" ]; then
-            echo "[controller] Fail threshold reached (backend + gateway) — deregistering DNS"
-          elif [ "${backend_ok}" = "false" ]; then
-            echo "[controller] Fail threshold reached (backend) — deregistering DNS"
-          else
-            echo "[controller] Fail threshold reached (gateway) — deregistering DNS"
-          fi
           delete_dns_service "fail threshold reached"
           is_healthy=false
         fi

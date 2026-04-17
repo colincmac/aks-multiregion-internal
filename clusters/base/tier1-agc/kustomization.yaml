@@ -1,10 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # Tier-1 gateway overlay — Application Gateway for Containers (AGC).
-# Implements ADR-0001 Option E. Not yet included from any regional
-# kustomization; see ./README.md for wiring steps.
+# Implements ADR-0001 Option E. Regional overlays (clusters/east, clusters/west)
+# include this overlay and supply per-region patches; see README.md.
 resources:
   - namespace.yaml
+  - namespace-azure-alb-system.yaml
+  - helmrepo-alb-controller.yaml
+  - helmrelease-alb-controller.yaml
   - applicationloadbalancer.yaml
   - gateway.yaml
   - httproute.yaml

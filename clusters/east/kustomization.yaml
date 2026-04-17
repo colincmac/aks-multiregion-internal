@@ -7,6 +7,7 @@ resources:
   # - ../base/my-app/demo-traffic   # Opt-in: retries/canary/fault/weighted demos
   # - ../base/health-check
   - ../base/external-dns
+  - ../base/tier1-agc
   - helmrelease-istiod.yaml
   - helmrelease-eastwestgateway.yaml
   - cross-network-gateway.yaml
@@ -21,3 +22,13 @@ patches:
       name: external-dns
       namespace: external-dns
   - path: my-app-patch.yaml
+  - path: agc-patch.yaml
+    target:
+      kind: ApplicationLoadBalancer
+      name: tier1-agc
+      namespace: tier1-agc
+  - path: agc-patch.yaml
+    target:
+      kind: HelmRelease
+      name: azure-alb-controller
+      namespace: azure-alb-system

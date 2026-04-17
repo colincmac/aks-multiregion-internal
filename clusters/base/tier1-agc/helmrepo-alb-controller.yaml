@@ -1,0 +1,11 @@
+# OCI HelmRepository for the Azure ALB Controller chart.
+# Chart is published by Microsoft to mcr.microsoft.com.
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: alb-controller
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 1h
+  url: oci://mcr.microsoft.com/application-lb/charts
