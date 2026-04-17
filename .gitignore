@@ -1,1 +1,3 @@
-infra/main.bicepparam
+# Local parameter overrides — only ignore files named *.local.bicepparam
+# infra/main.bicepparam is intentionally tracked (uses readEnvironmentVariable() — no secrets)
+*.local.bicepparam
