@@ -1,0 +1,18 @@
+# Binds this cluster's ALB Controller to the regional AGC resource created
+# by infra/modules/tier1-agc.bicep. The `associations` value MUST be the
+# resource ID of the AGC <-> VNet association returned from that module.
+#
+# Per-region overlays (clusters/east, clusters/west) should patch this file
+# to substitute the concrete resource IDs; see README.md.
+apiVersion: alb.networking.azure.io/v1
+kind: ApplicationLoadBalancer
+metadata:
+  name: tier1-agc
+  namespace: tier1-agc
+spec:
+  # Resource ID of the AGC association in Azure. Replace per region.
+  # Format:
+  #   /subscriptions/<sub>/resourceGroups/<rg>/providers/
+  #     Microsoft.ServiceNetworking/trafficControllers/<agc>/associations/<assoc>
+  associations:
+    - PLACEHOLDER_AGC_ASSOCIATION_ID

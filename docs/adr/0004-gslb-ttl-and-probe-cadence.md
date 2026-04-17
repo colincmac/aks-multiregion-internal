@@ -3,6 +3,15 @@
 - **Status:** Accepted
 - **Date:** initial deployment
 
+> **Related:** [ADR-0001](./0001-tier1-gateway-choice.md) adopts a
+> Tier-1 AGC in front of the Tier-2 Istio ingress. Once that is wired
+> in, the A record managed here points at the regional AGC private
+> frontend IP and the health-check controller also runs a Tier-1
+> probe. When Azure Private Traffic Manager GAs, the DNS layer defined
+> in this ADR is replaced by a Private Traffic Manager profile whose
+> endpoints are the same AGC private IPs; the TTL/probe parameters
+> below move into the Private Traffic Manager profile configuration.
+
 ## Context
 
 The per-cluster health-check controller toggles an ExternalDNS-annotated
