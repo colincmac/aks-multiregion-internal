@@ -13,19 +13,97 @@ This overlay implements the L7 Tier-1 gateway decided in
 | `httproute.yaml` | `HTTPRoute` forwarding `api.internal.contoso.com` to the regional Istio Tier-2 ingress gateway service. |
 | `backendtlspolicy.yaml` | Backend mTLS policy so AGC originates mTLS to the Tier-2 Istio ingress gateway. |
 | `namespace.yaml` | `tier1-agc` namespace. |
+| `namespace-azure-alb-system.yaml` | `azure-alb-system` namespace for the ALB Controller. |
+| `helmrepo-alb-controller.yaml` | Flux `HelmRepository` pointing at the ALB Controller OCI chart on MCR. |
+| `helmrelease-alb-controller.yaml` | Flux `HelmRelease` that installs the ALB Controller with Workload Identity. |
 | `kustomization.yaml` | Bundles the above. |
 
-## How it is wired up (follow-up, not in this PR)
+## How it is wired up
 
-1. Install the ALB Controller Helm chart in each regional AKS cluster
-   and grant its workload identity federated credentials to the user-
-   assigned managed identity referenced by `tier1-agc.bicep`.
-2. Fill in the per-region placeholders in `applicationloadbalancer.yaml`
-   (AGC resource ID + frontend name from the Bicep module outputs).
-3. Add `../base/tier1-agc` to the regional overlays in `clusters/east`
-   and `clusters/west`.
-4. Repoint ExternalDNS to the AGC private frontend IP (see ADR-0004
-   follow-ups).
+This overlay is included from the regional kustomizations in `clusters/east`
+and `clusters/west`. The following one-time operator steps are required after
+the infra layer (`infra/main.bicep`) has been deployed:
 
-Until step 3, this overlay is **not** included from any regional
-kustomization, so it is safe to land alongside the ADR.
+### Step 1 — Deploy the infra layer
+
+```bash
+az deployment sub create \
+  --location eastus \
+  --template-file infra/main.bicep \
+  --parameters infra/main.example.bicepparam
+```
+
+Each cluster entry in `main.example.bicepparam` must include an
+`albSubnetPrefix` (e.g. `10.1.17.0/24` for east, `10.2.17.0/24` for west).
+`main.bicep` will:
+- Add an AGC-delegated `snet-agc` subnet to each regional VNet.
+- Create the AGC Traffic Controller and VNet association.
+- Create the `mi-alb-controller-<cluster>` managed identity and wire its
+  federated credential to the ALB Controller ServiceAccount.
+
+### Step 2 — Patch per-region placeholders
+
+Fill in the per-region placeholder values in
+`clusters/east/agc-patch.yaml` and `clusters/west/agc-patch.yaml`:
+
+```bash
+# East cluster
+EAST_ASSOC=$(az deployment sub show -n tier1-agc-eastus2 \
+  --query 'properties.outputs.associationId.value' -o tsv)
+EAST_CLIENT=$(az deployment sub show -n aks-eastus2 \
+  --query 'properties.outputs.albControllerIdentityClientId.value' -o tsv)
+
+# West cluster
+WEST_ASSOC=$(az deployment sub show -n tier1-agc-centralus \
+  --query 'properties.outputs.associationId.value' -o tsv)
+WEST_CLIENT=$(az deployment sub show -n aks-centralus \
+  --query 'properties.outputs.albControllerIdentityClientId.value' -o tsv)
+```
+
+Replace `PLACEHOLDER_EAST_AGC_ASSOCIATION_ID` with `$EAST_ASSOC`,
+`PLACEHOLDER_EAST_ALB_CONTROLLER_CLIENT_ID` with `$EAST_CLIENT`, etc. in the
+respective `agc-patch.yaml` files, then commit and push.
+
+### Step 3 — Verify ALB Controller installation
+
+Once Flux reconciles, the ALB Controller HelmRelease should be deployed in
+`azure-alb-system`. Verify:
+
+```bash
+kubectl -n azure-alb-system get helmrelease azure-alb-controller
+kubectl -n azure-alb-system get pods
+```
+
+### Step 4 — Verify AGC Gateway assignment
+
+After the ALB Controller is running and the `ApplicationLoadBalancer` resource
+references the correct association ID, the `Gateway` object should receive the
+AGC private frontend IP in its `status.addresses`:
+
+```bash
+kubectl -n tier1-agc get gateway tier1-agc \
+  -o jsonpath='{.status.addresses[*].value}{"\n"}'
+```
+
+Once the frontend IP is assigned, the health-check controller automatically:
+- Switches the ExternalDNS A-record target from the Tier-2 ILB to the AGC
+  private frontend IP.
+- Starts probing the AGC frontend as a Tier-1 health check (three-tier GSLB).
+
+## ExternalDNS / health-check integration
+
+The health-check controller (in `clusters/base/health-check`) dynamically
+discovers the AGC frontend IP from `gateway.status.addresses`. When the IP is
+available it:
+
+1. Creates `api-dns-record` as a headless Service with
+   `external-dns.alpha.kubernetes.io/target: <agc-frontend-ip>`, so ExternalDNS
+   publishes the AGC IP as the `api.internal.contoso.com` A record.
+2. Probes `https://<agc-frontend-ip>/` (with `Host: api.internal.contoso.com`)
+   as a Tier-1 health check. DNS is deregistered if this probe fails
+   (independently of Tier-2 health).
+
+If the `tier1-agc` Gateway is not yet deployed or has no address, the
+controller falls back to the original ExternalName Service pointing at the
+Tier-2 Istio ILB — ensuring backward-compatible rollout.
+

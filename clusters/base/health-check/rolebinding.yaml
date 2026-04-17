@@ -27,3 +27,19 @@ subjects:
   - kind: ServiceAccount
     name: health-check-controller
     namespace: health-check
+---
+# Bind the gateway-reader Role in tier1-agc to the health-check-controller ServiceAccount.
+# Allows the controller to discover the AGC frontend IP from Gateway status.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: health-check-gateway-reader
+  namespace: tier1-agc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: health-check-gateway-reader
+subjects:
+  - kind: ServiceAccount
+    name: health-check-controller
+    namespace: health-check

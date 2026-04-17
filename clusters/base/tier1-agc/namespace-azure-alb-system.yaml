@@ -1,0 +1,11 @@
+# Namespace for the Azure Application Load Balancer (ALB) Controller.
+# The ALB Controller runs here and is granted Azure AD Workload Identity
+# credentials via the 'mi-alb-controller-<cluster>' managed identity
+# created by infra/modules/aks.bicep.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: azure-alb-system
+  labels:
+    # ALB Controller pods must not have Istio sidecars injected.
+    istio-injection: disabled

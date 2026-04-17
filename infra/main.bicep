@@ -18,7 +18,7 @@ param privateDnsZoneName string = 'internal.contoso.com'
 @description('Location for global shared resources (DNS zone resource group)')
 param globalResourcesLocation string = 'eastus'
 
-@description('Array of cluster configurations. Each element: { name, location, addressPrefix, aksSubnetPrefix, ilbSubnetPrefix, kustomizationPath }')
+@description('Array of cluster configurations. Each element: { name, location, addressPrefix, aksSubnetPrefix, ilbSubnetPrefix, albSubnetPrefix, kustomizationPath }')
 param clusters array
 
 // ---------------------------------------------------------------------------
@@ -55,6 +55,7 @@ module vnets 'modules/vnet.bicep' = [
       addressPrefix: cluster.addressPrefix
       aksSubnetPrefix: cluster.aksSubnetPrefix
       ilbSubnetPrefix: cluster.ilbSubnetPrefix
+      albSubnetPrefix: cluster.?albSubnetPrefix ?? ''
       bastionSubnetPrefix: cluster.bastionSubnetPrefix
       utilityVMSubnetPrefix: cluster.utilityVMSubnetPrefix
 
@@ -128,10 +129,37 @@ module aksClusters 'modules/aks.bicep' = [
       location: cluster.location
       kubernetesVersion: kubernetesVersion
       vnetSubnetId: vnets[i].outputs.aksSubnetId
+      albSubnetId: vnets[i].outputs.albSubnetId
       gitRepositoryUrl: gitRepositoryUrl
       gitRepositoryBranch: gitRepositoryBranch
       kustomizationPath: cluster.kustomizationPath
       privateDnsZoneId: privateDns.outputs.id
+    }
+  }
+]
+
+// ---------------------------------------------------------------------------
+// Tier-1 AGC — one per cluster, only when albSubnetPrefix is provided.
+// ---------------------------------------------------------------------------
+
+module tier1Agc 'modules/tier1-agc.bicep' = [
+  for (cluster, i) in clusters: if (!empty(cluster.?albSubnetPrefix ?? '')) {
+    name: 'tier1-agc-${cluster.name}'
+    scope: rgs[i]
+    dependsOn: [
+      vnets
+      aksClusters
+    ]
+    params: {
+      name: 'agc-${environmentName}-${cluster.name}'
+      location: cluster.location
+      vnetId: vnets[i].outputs.id
+      albDelegatedSubnetId: vnets[i].outputs.albSubnetId
+      albControllerIdentityPrincipalId: aksClusters[i].outputs.albControllerIdentityPrincipalId
+      tags: {
+        environment: environmentName
+        cluster: cluster.name
+      }
     }
   }
 ]

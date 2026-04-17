@@ -37,6 +37,9 @@ param userNodeMaxCount int = 10
 @description('Resource ID of the Azure Private DNS Zone managed by ExternalDNS')
 param privateDnsZoneId string
 
+@description('Resource ID of the AGC-delegated subnet. When non-empty, a user-assigned managed identity for the ALB Controller is created and granted Network Reader on this subnet.')
+param albSubnetId string = ''
+
 // Extract VNet and subnet names from the subnet resource ID for role assignment
 var vnetName = split(vnetSubnetId, '/')[8]
 var subnetName = split(vnetSubnetId, '/')[10]
@@ -232,9 +235,65 @@ resource fluxConfig 'Microsoft.KubernetesConfiguration/fluxConfigurations@2025-0
   }
 }
 
+// ---------------------------------------------------------------------------
+// ALB Controller Workload Identity (only when AGC subnet is provided)
+// ---------------------------------------------------------------------------
+
+// User-Assigned Managed Identity for the in-cluster ALB Controller.
+// The ALB Controller exchanges a Kubernetes ServiceAccount token for this
+// identity's token to configure the AGC resource in Azure.
+resource albControllerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2025-05-31-preview' = if (!empty(albSubnetId)) {
+  name: 'mi-alb-controller-${name}'
+  location: location
+}
+
+// Federated identity credential: allows the ALB Controller ServiceAccount in
+// the azure-alb-system namespace to authenticate to Azure AD as this identity.
+resource albControllerFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2025-05-31-preview' = if (!empty(albSubnetId)) {
+  parent: albControllerIdentity
+  name: 'alb-controller-federated'
+  properties: {
+    issuer: aks.properties.oidcIssuerProfile.issuerURL
+    subject: 'system:serviceaccount:azure-alb-system:azure-alb-controller'
+    audiences: ['api://AzureADTokenExchange']
+  }
+}
+
+// Extract VNet/subnet names from the ALB subnet resource ID for role scoping.
+var albSubnetIdParts = !empty(albSubnetId) ? split(albSubnetId, '/') : []
+var albVnetName = !empty(albSubnetId) ? albSubnetIdParts[8] : ''
+var albSubnetName = !empty(albSubnetId) ? albSubnetIdParts[10] : ''
+
+resource albVnet 'Microsoft.Network/virtualNetworks@2025-05-01' existing = if (!empty(albSubnetId)) {
+  name: albVnetName
+}
+
+resource albSubnetResource 'Microsoft.Network/virtualNetworks/subnets@2025-05-01' existing = if (!empty(albSubnetId)) {
+  parent: albVnet
+  name: albSubnetName
+}
+
+// Grant the ALB Controller identity Reader on the AGC-delegated subnet so it
+// can read subnet metadata during AGC association reconciliation.
+resource albControllerSubnetReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(albSubnetId)) {
+  scope: albSubnetResource
+  name: guid(albSubnetId, albControllerIdentity.id, 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'acdd72a7-3385-48ef-bd42-f606fba81ae7' // Reader
+    )
+    principalId: albControllerIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 output id string = aks.id
 output name string = aks.name
 output principalId string = aks.identity.principalId
 output oidcIssuerUrl string = aks.properties.oidcIssuerProfile.issuerURL
 output externalDnsIdentityClientId string = externalDnsIdentity.properties.clientId
 output externalDnsIdentityPrincipalId string = externalDnsIdentity.properties.principalId
+// albControllerIdentity outputs are empty strings when albSubnetId is not provided.
+output albControllerIdentityClientId string = !empty(albSubnetId) ? albControllerIdentity.properties.clientId : ''
+output albControllerIdentityPrincipalId string = !empty(albSubnetId) ? albControllerIdentity.properties.principalId : ''

@@ -22,3 +22,16 @@ rules:
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
     verbs: ["get", "list", "watch"]
+---
+# Role to read the Tier-1 AGC Gateway status in tier1-agc namespace.
+# Used by the health-check controller to discover the AGC private frontend IP
+# (gateway.status.addresses) for DNS targeting and Tier-1 health probing.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: health-check-gateway-reader
+  namespace: tier1-agc
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    verbs: ["get", "list", "watch"]

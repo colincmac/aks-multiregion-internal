@@ -1,0 +1,36 @@
+# West cluster AGC patches.
+#
+# Replace PLACEHOLDER values with the actual Bicep module outputs after
+# infra/main.bicep is deployed:
+#
+#   WEST_AGC_ASSOCIATION_ID  → tier1Agc[1].outputs.associationId
+#   WEST_ALB_CLIENT_ID       → aksClusters[1].outputs.albControllerIdentityClientId
+#
+# Example replacement commands:
+#   ASSOC=$(az deployment sub show -n tier1-agc-centralus \
+#     --query 'properties.outputs.associationId.value' -o tsv)
+#   CLIENT=$(az deployment sub show -n aks-centralus \
+#     --query 'properties.outputs.albControllerIdentityClientId.value' -o tsv)
+#   # Then apply via Kustomize overlays or update this file directly.
+
+# Patch 1: set the AGC VNet association resource ID on the ApplicationLoadBalancer.
+apiVersion: alb.networking.azure.io/v1
+kind: ApplicationLoadBalancer
+metadata:
+  name: tier1-agc
+  namespace: tier1-agc
+spec:
+  associations:
+    - PLACEHOLDER_WEST_AGC_ASSOCIATION_ID
+---
+# Patch 2: set the ALB Controller managed identity client ID on the HelmRelease.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: azure-alb-controller
+  namespace: azure-alb-system
+spec:
+  values:
+    albController:
+      podIdentity:
+        clientId: PLACEHOLDER_WEST_ALB_CONTROLLER_CLIENT_ID
