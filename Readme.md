@@ -2,6 +2,9 @@
 
 A fully private, multi-region service mesh architecture using **Istio (traditional sidecar mode)** on Azure Kubernetes Service (AKS), managed via **Flux GitOps**. Deploy any number of private AKS clusters across Azure regions — the infrastructure automatically creates full-mesh VNet peering, Flux GitOps, and Private DNS linking between all clusters. Istio sidecar proxies provide mTLS, L4/L7 policy enforcement, and locality-aware load balancing with cross-region failover.
 
+[![Deploy to Azure](https://aka.ms/deploytoazure)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fcolincmac%2Faks-multiregion-internal%2Fmain%2Finfra%2Fmain.bicep)
+[![Deploy to Azure Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fcolincmac%2Faks-multiregion-internal%2Fmain%2Finfra%2Fmain.bicep)
+
 > **CNI Note:** AKS uses Azure Overlay CNI with Cilium dataplane. Cilium handles all pod networking, so `istio-cni` is **not needed** and is kept commented out in the Kustomization. Sidecar injection is enabled via `istio-injection: enabled` namespace labels.
 
 ## Architecture
@@ -202,6 +205,100 @@ DNS is only registered when **both** tiers are healthy. If either tier fails, DN
 
 ## Deployment
 
+Three deployment paths are supported: the **Azure Portal button** (quickstart), the **Azure Developer CLI** (`azd`), and **GitHub Actions** (CI/CD). All three use the same Bicep template under `infra/`.
+
+### Option A — Deploy to Azure (Portal button)
+
+Click the button at the top of this README or use the link below. The Azure portal opens a custom deployment form pre-loaded with `infra/main.bicep`. Fill in the required parameters (environment name, cluster definitions) and click **Review + create**.
+
+> **Note:** The portal form requires the `clusters` parameter to be entered as a JSON array. Use the values from `infra/main.bicepparam` as a starting point and adjust regions/prefixes as needed.
+
+### Option B — Azure Developer CLI (`azd`)
+
+The [Azure Developer CLI](https://aka.ms/azd) provides a guided, interactive deployment experience from your local machine.
+
+#### Prerequisites
+
+- [Azure Developer CLI ≥ 1.9](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- Azure CLI with Bicep extension
+
+#### Steps
+
+```bash
+# 1. Authenticate
+azd auth login
+
+# 2. Initialize the environment (prompts for environment name and region)
+azd env new <env-name>
+azd env set AZURE_LOCATION eastus
+
+# 3. (Optional) Override the Flux Git URL and DNS zone name
+azd env set GIT_REPOSITORY_URL  "https://github.com/<org>/<repo>"
+azd env set PRIVATE_DNS_ZONE_NAME "internal.contoso.com"
+
+# 4. Edit infra/main.bicepparam to customize the clusters array, then deploy
+azd provision
+```
+
+`azd provision` runs `az deployment sub create` with `infra/main.bicep` and `infra/main.bicepparam`. Environment variables set via `azd env set` are automatically injected as `readEnvironmentVariable()` values in the parameter file.
+
+### Option C — GitHub Actions (CI/CD)
+
+The included workflow (`.github/workflows/deploy-infrastructure.yml`) provides:
+
+- **PR validation** — runs `az deployment sub validate` on every pull request that touches `infra/`.
+- **What-if** — shows a diff of planned changes before applying them.
+- **Manual deploy** — triggered via `workflow_dispatch` with inputs for environment name, location, and a what-if toggle.
+
+#### Setting up OIDC credentials
+
+The workflow authenticates to Azure using OpenID Connect (no stored secrets). Create a federated credential on an Entra ID app or managed identity, then add three repository secrets:
+
+| Secret | Value |
+|---|---|
+| `AZURE_CLIENT_ID` | Application (client) ID of the Entra ID app |
+| `AZURE_TENANT_ID` | Directory (tenant) ID |
+| `AZURE_SUBSCRIPTION_ID` | Target subscription ID |
+
+Grant the app the **Contributor** + **User Access Administrator** roles at subscription scope (required to create resource groups and role assignments).
+
+```bash
+# Create a service principal with federated credentials for GitHub Actions
+az ad app create --display-name "aks-multiregion-deploy"
+APP_ID=$(az ad app list --display-name "aks-multiregion-deploy" --query "[0].appId" -o tsv)
+SP_OID=$(az ad sp create --id "$APP_ID" --query id -o tsv)
+
+az role assignment create \
+  --assignee-object-id "$SP_OID" \
+  --role "Contributor" \
+  --scope "/subscriptions/<subscription-id>"
+
+az role assignment create \
+  --assignee-object-id "$SP_OID" \
+  --role "User Access Administrator" \
+  --scope "/subscriptions/<subscription-id>"
+
+# Federated credential for GitHub Actions
+az ad app federated-credential create \
+  --id "$APP_ID" \
+  --parameters '{
+    "name": "github-actions",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:colincmac/aks-multiregion-internal:ref:refs/heads/main",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+Then add `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as repository secrets.
+
+#### Triggering a deployment
+
+Go to **Actions → Deploy Infrastructure → Run workflow**, enter your environment name and location, and click **Run workflow**. Uncheck *what-if* to apply the changes.
+
+---
+
+### Manual Deployment (PowerShell)
+
 ### 1. Configure Parameters
 
 Edit [`infra/main.bicepparam`](infra/main.bicepparam) — set your GitHub repository URL and define your clusters:
@@ -216,6 +313,8 @@ param clusters = [
     addressPrefix: '10.1.0.0/16'
     aksSubnetPrefix: '10.1.0.0/20'
     ilbSubnetPrefix: '10.1.16.0/24'
+    bastionSubnetPrefix: '10.1.17.0/26'
+    utilityVMSubnetPrefix: '10.1.18.0/28'
     kustomizationPath: './clusters/east'
   }
   {
@@ -224,6 +323,8 @@ param clusters = [
     addressPrefix: '10.2.0.0/16'
     aksSubnetPrefix: '10.2.0.0/20'
     ilbSubnetPrefix: '10.2.16.0/24'
+    bastionSubnetPrefix: '10.2.17.0/26'
+    utilityVMSubnetPrefix: '10.2.18.0/28'
     kustomizationPath: './clusters/west'
   }
   // Add more clusters as needed — use non-overlapping address prefixes
