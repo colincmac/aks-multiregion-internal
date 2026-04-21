@@ -8,3 +8,9 @@ infra:
   provider: bicep
   path: infra
   module: main
+
+hooks:
+  postprovision:
+    windows:
+      shell: pwsh
+      run: ./scripts/sync-gitops-config.ps1

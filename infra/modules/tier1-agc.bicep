@@ -13,10 +13,10 @@
 // Reference:
 //   https://learn.microsoft.com/en-us/azure/application-gateway/for-containers/quickstart-create-application-gateway-for-containers-byo-deployment
 //
-// This module is intentionally NOT wired into infra/main.bicep yet — see the
-// follow-ups in ADR-0001. Wiring requires allocating an AGC-delegated subnet
-// per regional VNet (see vnet.bicep) and granting the ALB Controller identity
-// federated credentials to the cluster OIDC issuer.
+// This module is wired from infra/main.bicep whenever a cluster supplies an
+// albSubnetPrefix. That delegated subnet is created in vnet.bicep and the
+// ALB Controller identity is created in aks.bicep and bound here with the
+// configuration-manager role.
 // ---------------------------------------------------------------------------
 
 @description('Base name for the AGC resources (e.g. "agc-istio-mesh-eastus2").')

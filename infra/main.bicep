@@ -18,7 +18,7 @@ param privateDnsZoneName string = 'internal.contoso.com'
 @description('Location for global shared resources (DNS zone resource group)')
 param globalResourcesLocation string = 'eastus'
 
-@description('Array of cluster configurations. Each element: { name, location, addressPrefix, aksSubnetPrefix, ilbSubnetPrefix, albSubnetPrefix, kustomizationPath }')
+@description('Array of cluster configurations. Each element: { name, location, addressPrefix, aksSubnetPrefix, ilbSubnetPrefix, bastionSubnetPrefix, utilityVMSubnetPrefix, albSubnetPrefix, kustomizationPath }')
 param clusters array
 
 // ---------------------------------------------------------------------------
@@ -161,5 +161,19 @@ module tier1Agc 'modules/tier1-agc.bicep' = [
         cluster: cluster.name
       }
     }
+  }
+]
+
+output globalResourceGroupName string = rgGlobal.name
+output clusterGitOpsConfig array = [
+  for (cluster, i) in clusters: {
+    name: cluster.name
+    location: cluster.location
+    resourceGroupName: rgs[i].name
+    kustomizationPath: cluster.kustomizationPath
+    privateDnsZoneName: privateDnsZoneName
+    externalDnsIdentityClientId: aksClusters[i].outputs.externalDnsIdentityClientId
+    albControllerIdentityClientId: aksClusters[i].outputs.albControllerIdentityClientId
+    albAssociationId: !empty(cluster.?albSubnetPrefix ?? '') ? tier1Agc[i]!.outputs.associationId : ''
   }
 ]

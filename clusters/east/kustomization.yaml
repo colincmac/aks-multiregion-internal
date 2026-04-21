@@ -5,7 +5,7 @@ resources:
   - ../base/istio-egress
   - ../base/my-app
   # - ../base/my-app/demo-traffic   # Opt-in: retries/canary/fault/weighted demos
-  # - ../base/health-check
+  - ../base/health-check
   - ../base/external-dns
   - ../base/tier1-agc
   - helmrelease-istiod.yaml
@@ -21,13 +21,18 @@ patches:
       kind: Deployment
       name: external-dns
       namespace: external-dns
+  - path: externaldns-serviceaccount-patch.yaml
+    target:
+      kind: ServiceAccount
+      name: external-dns
+      namespace: external-dns
   - path: my-app-patch.yaml
-  - path: agc-patch.yaml
+  - path: agc-association-patch.yaml
     target:
       kind: ApplicationLoadBalancer
       name: tier1-agc
       namespace: tier1-agc
-  - path: agc-patch.yaml
+  - path: alb-controller-identity-patch.yaml
     target:
       kind: HelmRelease
       name: azure-alb-controller

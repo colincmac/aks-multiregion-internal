@@ -15,9 +15,9 @@ spec:
           args:
             - --source=service
             - --provider=azure-private-dns
-            - --azure-resource-group=rg-istio-mesh-global
-            - --azure-subscription-id=$(AZURE_SUBSCRIPTION_ID)
-            - --domain-filter=internal.contoso.com
+            - --azure-resource-group=PLACEHOLDER_GLOBAL_RESOURCE_GROUP
+            - --azure-subscription-id=PLACEHOLDER_AZURE_SUBSCRIPTION_ID
+            - --domain-filter=PLACEHOLDER_PRIVATE_DNS_ZONE_NAME
             - --policy=sync
             - --registry=txt
             - --txt-owner-id=cluster-west
