@@ -260,7 +260,7 @@ resource albControllerFederatedCredential 'Microsoft.ManagedIdentity/userAssigne
 }
 
 // Extract VNet/subnet names from the ALB subnet resource ID for role scoping.
-var albSubnetIdParts = !empty(albSubnetId) ? split(albSubnetId, '/') : []
+var albSubnetIdParts = split(albSubnetId, '/')
 var albVnetName = !empty(albSubnetId) ? albSubnetIdParts[8] : ''
 var albSubnetName = !empty(albSubnetId) ? albSubnetIdParts[10] : ''
 
@@ -277,13 +277,13 @@ resource albSubnetResource 'Microsoft.Network/virtualNetworks/subnets@2025-05-01
 // can read subnet metadata during AGC association reconciliation.
 resource albControllerSubnetReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(albSubnetId)) {
   scope: albSubnetResource
-  name: guid(albSubnetId, albControllerIdentity.id, 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
+  name: guid(albSubnetId, albControllerIdentity!.id, 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
   properties: {
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
       'acdd72a7-3385-48ef-bd42-f606fba81ae7' // Reader
     )
-    principalId: albControllerIdentity.properties.principalId
+    principalId: albControllerIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -295,5 +295,5 @@ output oidcIssuerUrl string = aks.properties.oidcIssuerProfile.issuerURL
 output externalDnsIdentityClientId string = externalDnsIdentity.properties.clientId
 output externalDnsIdentityPrincipalId string = externalDnsIdentity.properties.principalId
 // albControllerIdentity outputs are empty strings when albSubnetId is not provided.
-output albControllerIdentityClientId string = !empty(albSubnetId) ? albControllerIdentity.properties.clientId : ''
-output albControllerIdentityPrincipalId string = !empty(albSubnetId) ? albControllerIdentity.properties.principalId : ''
+output albControllerIdentityClientId string = !empty(albSubnetId) ? albControllerIdentity!.properties.clientId : ''
+output albControllerIdentityPrincipalId string = !empty(albSubnetId) ? albControllerIdentity!.properties.principalId : ''

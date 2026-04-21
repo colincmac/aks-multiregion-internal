@@ -1,0 +1,8 @@
+apiVersion: alb.networking.azure.io/v1
+kind: ApplicationLoadBalancer
+metadata:
+  name: tier1-agc
+  namespace: tier1-agc
+spec:
+  associations:
+    - PLACEHOLDER_WEST_AGC_ASSOCIATION_ID

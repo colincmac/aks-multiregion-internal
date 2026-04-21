@@ -34,35 +34,30 @@ az deployment sub create \
 ```
 
 Each cluster entry in `main.example.bicepparam` must include an
-`albSubnetPrefix` (e.g. `10.1.17.0/24` for east, `10.2.17.0/24` for west).
+`albSubnetPrefix` (e.g. `10.1.19.0/24` for east, `10.2.19.0/24` for west).
 `main.bicep` will:
 - Add an AGC-delegated `snet-agc` subnet to each regional VNet.
 - Create the AGC Traffic Controller and VNet association.
 - Create the `mi-alb-controller-<cluster>` managed identity and wire its
   federated credential to the ALB Controller ServiceAccount.
 
-### Step 2 — Patch per-region placeholders
+### Step 2 — Render the per-region GitOps values
 
-Fill in the per-region placeholder values in
-`clusters/east/agc-patch.yaml` and `clusters/west/agc-patch.yaml`:
+The regional overlay placeholders are now synchronized automatically by the
+provisioning flow:
 
-```bash
-# East cluster
-EAST_ASSOC=$(az deployment sub show -n tier1-agc-eastus2 \
-  --query 'properties.outputs.associationId.value' -o tsv)
-EAST_CLIENT=$(az deployment sub show -n aks-eastus2 \
-  --query 'properties.outputs.albControllerIdentityClientId.value' -o tsv)
+- `scripts/deploy.ps1` runs `scripts/sync-gitops-config.ps1` after a successful deployment.
+- `azd provision` also triggers the same sync step via the post-provision hook in `azure.yaml`.
 
-# West cluster
-WEST_ASSOC=$(az deployment sub show -n tier1-agc-centralus \
-  --query 'properties.outputs.associationId.value' -o tsv)
-WEST_CLIENT=$(az deployment sub show -n aks-centralus \
-  --query 'properties.outputs.albControllerIdentityClientId.value' -o tsv)
+If you need to refresh the overlay values manually after a redeploy, run:
+
+```powershell
+./scripts/sync-gitops-config.ps1
 ```
 
-Replace `PLACEHOLDER_EAST_AGC_ASSOCIATION_ID` with `$EAST_ASSOC`,
-`PLACEHOLDER_EAST_ALB_CONTROLLER_CLIENT_ID` with `$EAST_CLIENT`, etc. in the
-respective `agc-patch.yaml` files, then commit and push.
+This populates the AGC association IDs, the ALB Controller Workload Identity
+client IDs, and the ExternalDNS Workload Identity client IDs in the regional
+overlay patch files.
 
 ### Step 3 — Verify ALB Controller installation
 

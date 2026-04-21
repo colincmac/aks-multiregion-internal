@@ -16,7 +16,9 @@ param clusters = [
     addressPrefix: '10.1.0.0/16'
     aksSubnetPrefix: '10.1.0.0/20'
     ilbSubnetPrefix: '10.1.16.0/24'
-    albSubnetPrefix: '10.1.17.0/24'
+    bastionSubnetPrefix: '10.1.17.0/26'
+    utilityVMSubnetPrefix: '10.1.18.0/28'
+    albSubnetPrefix: '10.1.19.0/24'
     kustomizationPath: './clusters/east'
   }
   {
@@ -25,7 +27,9 @@ param clusters = [
     addressPrefix: '10.2.0.0/16'
     aksSubnetPrefix: '10.2.0.0/20'
     ilbSubnetPrefix: '10.2.16.0/24'
-    albSubnetPrefix: '10.2.17.0/24'
+    bastionSubnetPrefix: '10.2.17.0/26'
+    utilityVMSubnetPrefix: '10.2.18.0/28'
+    albSubnetPrefix: '10.2.19.0/24'
     kustomizationPath: './clusters/west'
   }
 ]

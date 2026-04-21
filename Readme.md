@@ -374,39 +374,16 @@ done
 
 ### 3b. Post-Deployment — ExternalDNS Workload Identity Setup
 
-The Bicep infrastructure creates a User-Assigned Managed Identity for ExternalDNS in each cluster's resource group and grants it `Private DNS Zone Contributor` on the shared DNS zone. You need to annotate the ExternalDNS ServiceAccount and create the Azure auth secret in each cluster:
+This step is now automated. The Bicep deployment still creates the
+User-Assigned Managed Identity for ExternalDNS and grants it `Private DNS Zone Contributor`, but the repository overlays are patched automatically with the concrete client IDs and Azure subscription values:
 
-```bash
-# Get the ExternalDNS managed identity client IDs from the Bicep outputs
-EAST_CLIENT_ID=$(az deployment sub show \
-  --name "deploy-istio-mesh" \
-  --query "properties.outputs.aksEastus2ExternalDnsIdentityClientId.value" -o tsv)
+- `scripts/deploy.ps1` runs the sync automatically after `az deployment sub create`
+- `azd provision` runs the same sync through the `postprovision` hook in `azure.yaml`
 
-WEST_CLIENT_ID=$(az deployment sub show \
-  --name "deploy-istio-mesh" \
-  --query "properties.outputs.aksCentralusExternalDnsIdentityClientId.value" -o tsv)
+If you reprovision the infrastructure and want to refresh the GitOps source of truth manually, run:
 
-SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-
-# Annotate the ExternalDNS ServiceAccount for Workload Identity in each cluster
-kubectl annotate serviceaccount external-dns \
-  -n external-dns \
-  "azure.workload.identity/client-id=${EAST_CLIENT_ID}" \
-  --context=aks-eastus2
-
-kubectl annotate serviceaccount external-dns \
-  -n external-dns \
-  "azure.workload.identity/client-id=${WEST_CLIENT_ID}" \
-  --context=aks-centralus
-
-# Create the Azure subscription secret for ExternalDNS (used for the azure-private-dns provider)
-for CTX in aks-eastus2 aks-centralus; do
-  kubectl create secret generic external-dns-azure \
-    -n external-dns \
-    --from-literal=subscription-id="${SUBSCRIPTION_ID}" \
-    --context="${CTX}" \
-    --dry-run=client -o yaml | kubectl apply -f - --context="${CTX}"
-done
+```powershell
+./scripts/sync-gitops-config.ps1
 ```
 
 > **DNS TTL consideration:** The `api-dns-record` Service annotation sets TTL=30s. Combined with the health-check probe interval (5s), fail threshold (3 consecutive failures = 15s), and ExternalDNS polling interval (10s), the worst-case failover time is ~55s. For faster failover, reduce the TTL and/or the ExternalDNS `--interval`, but note that Azure Private DNS has a minimum TTL of 1s.
